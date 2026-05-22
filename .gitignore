@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────
+# Sistema / editor
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+.vscode/
+
+# ─────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# ─────────────────────────────────────────────────────────────
+# Secretos (NO subir). .env.example SÍ se versiona.
+# ─────────────────────────────────────────────────────────────
+.env
+
+# ─────────────────────────────────────────────────────────────
+# Datos, modelos y salidas — NO van a GitHub
+#   · models/  (~1.6 GB de binarios)
+#   · results/ (~269 MB de salidas)
+#   · papers/  (~58 PDFs académicos con copyright)
+#   · resto: datasets crudos/intermedios y carpetas históricas
+# ─────────────────────────────────────────────────────────────
+models/
+results/
+papers/
+papers_deleted/
+data/
+csv/
+json/
+stws/
+theme-scopus/
+txt/
+notebooks/
+reports/
