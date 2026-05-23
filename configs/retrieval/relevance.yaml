@@ -1,0 +1,34 @@
+source:
+  name: relevance
+  enabled: true
+
+weights:
+  lexical: 0.15
+  semantic: 0.25
+  concept: 0.15
+  seed_overlap: 0.15
+  recency: 0.10
+  citation_velocity: 0.10
+  work_type_match: 0.10
+
+recency:
+  half_life_years: 3
+  current_year: null   # null = current system year
+
+citation_velocity:
+  saturation: 30.0
+
+subject_areas:
+  enabled: true
+  codes:
+    - COMP
+    - BUSI
+    - ENGI
+    - SOCI
+    - DECI
+    - ECON
+
+sampling:
+  window_years: 5
+  per_year_results: 25
+  sort: "-citedby-count,-coverDate"
