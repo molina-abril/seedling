@@ -27,15 +27,23 @@ __pycache__/
 #   · papers/  (~58 PDFs académicos con copyright)
 #   · resto: datasets crudos/intermedios y carpetas históricas
 # ─────────────────────────────────────────────────────────────
-models/
+/models/
 results/
-papers/
+papers/*.pdf
 papers_deleted/
 data/
 csv/
 json/
-stws/
 theme-scopus/
 txt/
 notebooks/
 reports/
+documentation/
+scripts/*
+!scripts/bootstrap.sh
+!scripts/extract_hierarchy.py
+!scripts/freeze_run.py
+
+# Artefactos de tests (salidas generadas / notebooks exploratorios)
+tests/results/
+tests/test_phase6.ipynb

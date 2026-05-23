@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lit-review"
+version = "0.1.0"
+description = "End-to-end literature review pipeline"
+readme = "README.md"
+license = { text = "AGPL-3.0-or-later" }
+requires-python = ">=3.11"
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pydantic>=2.0",
+    "requests>=2.31",
+    "pypdf>=4.0",
+    "python-dateutil>=2.8",
+    "ruamel.yaml>=0.18",
+    "tqdm>=4.66",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# Los tests importan `src.*`, así que el repo root debe estar en sys.path.
+pythonpath = ["."]
+testpaths = ["tests"]
+# Por defecto saltamos tests que hacen network real o consumen cuota de APIs
+# (Scopus, arXiv, OpenAI). Para correrlos: `pytest -m integration`.
+addopts = "-m 'not integration'"
+markers = [
+    "integration: end-to-end tests que requieren network real y API keys (Scopus/arXiv/OpenAI). Saltados por defecto.",
+]

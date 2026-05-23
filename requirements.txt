@@ -1,0 +1,34 @@
+# Core dependencies for multi-agent literature search pipeline
+pydantic>=2.10,<3
+requests==2.31.0
+pypdf==4.0.0
+rapidfuzz>=3,<4
+ruamel.yaml==0.18.0
+tqdm==4.66.0
+python-dotenv==1.0.0
+pytest==7.4.0
+pytest-cov==4.1.0
+
+# OpenAI client for LLM fallback (used by scripts/fix_titles.py)
+openai>=1.70,<2
+
+# Phase 6: BERTopic Clustering
+bertopic>=0.16.0
+sentence-transformers==3.2.0
+transformers>=4.41.0,<5
+umap-learn>=0.5.0
+chardet>=5.0.0
+scikit-learn>=1.3.0  # For keyword synthesis TF-IDF
+# Keep NumPy on the 1.x line because llvmlite/numba-backed wheels used by BERTopic are not NumPy 2 ready yet.
+numpy>=1.26,<2
+# hdbscan, torch are included as dependencies of bertopic/sentence-transformers/transformers
+# stws is included locally in stws/ folder
+
+# Phase 7: Retrieval Agent
+pybliometrics>=3.5.0,<4
+# Fuzzy matching uses rapidfuzz (MIT, declared above). The GPL-licensed
+# fuzzywuzzy / python-Levenshtein were removed (they were unused) so the
+# dependency set stays compatible with the project's AGPL-3.0 license.
+
+# Phase 7-10 (optional for now)
+# google-search-results==2.4.0

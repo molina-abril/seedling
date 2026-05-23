@@ -1,0 +1,22 @@
+Seedling — Multi-agent literature-review pipeline
+Copyright (C) 2026 Gines Molina Abril
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See the LICENSE file for the full text.
+
+------------------------------------------------------------------------------
+Acknowledgements / attribution
+------------------------------------------------------------------------------
+Seedling is an independent implementation. Two of its components were inspired
+by the published work below. No source code from those projects is used here;
+only their conceptual approaches informed the design.
+
+* SemRank — conceptual / hybrid reranking approach.
+  Zhan et al. — https://github.com/yzhan238/SemRank
+  (inspires src/retrieval/relevance_scorer.py)
+
+* ResearchAgent — iterative, multi-agent reviewing pattern.
+  Baek et al. — https://github.com/JinheonBaek/ResearchAgent
+  (inspires src/retrieval/reviewer_agent.py)

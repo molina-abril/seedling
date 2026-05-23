@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Seedling"
+abstract: >-
+  Multi-agent literature-review pipeline that grows a reviewed corpus from a
+  handful of seed papers: BERTopic clustering, Scopus/arXiv retrieval, hybrid
+  relevance re-ranking and iterative LLM-guided query refinement.
+type: software
+authors:
+  - family-names: "Molina-Abril"
+    given-names: "Gines"
+license: AGPL-3.0-or-later
+version: "0.1.0"
+date-released: "2026-05-22"
+url: "https://github.com/molina-abril/seedling"
+repository-code: "https://github.com/molina-abril/seedling"
+keywords:
+  - literature-review
+  - systematic-review
+  - multi-agent
+  - bertopic
+  - information-retrieval
+  - arxiv
+  - scopus
