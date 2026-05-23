@@ -1,0 +1,41 @@
+version: 1
+
+meta:
+  reviewer: "REDACTED"
+  generated_at: "2026-05-18T10:30:00"
+  source_clusters_file: "results/clustering/clusters_initial.json"
+  bertopic_model: "models/clustering/bertopic_model_20260518_103000.pkl"
+  notes: >
+    Example template. At runtime this block is filled automatically with the
+    run's data.
+
+clusters:
+  - id: -1
+    label: ""
+    description: ""
+    papers:
+      - { id: "p_example_noise_1", title: "Example paper title in noise" }
+      - { id: "p_example_noise_2", title: "Another noise paper" }
+
+  - id: 0
+    label: "human, evidence, cognition"
+    description: ""
+    papers:
+      - { id: "p_example_cog_1", title: "Example cognition paper" }
+      - { id: "p_example_cog_2", title: "Another cognition paper" }
+
+  - id: 1
+    label: "strategic, firms, evaluations"
+    description: ""
+    papers:
+      - { id: "p_example_strat_1", title: "Example strategy paper" }
+
+  - id: 100
+    label: "AI-enabled strategy & decision-making"
+    description: >
+      Articles on how AI systems (LLMs, agents, ML) intervene in strategic
+      decisions within organizations. Manual rescue of papers that HDBSCAN
+      classified as noise.
+    notes: "Cluster created during the 2026-05-18 review."
+    papers:
+      - { id: "p_example_rescued_1", title: "Rescued from noise — strategic IS paper" }
