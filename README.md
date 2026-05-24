@@ -351,7 +351,7 @@ Scopus calls needed.
 | `--cluster-id N` | `-1` (all; skips noise `-1`) | Single cluster |
 | `--output-dir PATH` | `results` | Output root |
 | `--max-results N` | `30` | Max results per strategy |
-| `--sampling-per-year N` | config (`25`) | Top-cited papers fetched per year (~25 ≈ 1 Scopus page) |
+| `--sampling-per-year N` | config (`75`) | Top-cited papers fetched per year (25 ≈ 1 Scopus page, so 75 ≈ 3) |
 | `--sampling-window-years N` | config (`5`) | Recent years to sample (pool ≈ window × per-year) |
 | `--max-iterations N` | `5` | Max query-refinement iterations |
 | `--min-recall F` | `0.90` | Recall threshold to stop the loop |
@@ -409,7 +409,7 @@ subject_areas:           # hard AND filter applied to every Scopus query
   codes: [COMP, BUSI, ENGI, SOCI, DECI, ECON]
 sampling:                # candidate pool = deduplicated union of per-year top-cited papers
   window_years: 5
-  per_year_results: 25
+  per_year_results: 75
   sort: "-citedby-count,-coverDate"
 ```
 

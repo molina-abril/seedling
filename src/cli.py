@@ -271,7 +271,7 @@ def main():
         help=(
             "Top-cited papers fetched PER YEAR (overrides configs/retrieval/"
             "relevance.yaml sampling.per_year_results). Each 25 ≈ one Scopus page. "
-            "Raising it (e.g. 50, 75) widens the candidate pool toward less-cited "
+            "Raising it (e.g. 100, 150) widens the candidate pool toward less-cited "
             "but possibly on-topic papers — trades Scopus calls for recall."
         ),
     )
