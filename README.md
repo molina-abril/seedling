@@ -102,8 +102,8 @@ but a stable, explainable expansion that you can also pin fully (see
 
 ```bash
 # 1. Install Miniforge: https://conda-forge.org/download/
-# 2. Create the environment
-conda create -n seedling python=3.12 -y
+# 2. Create the environment (include pip so make setup can install deps)
+conda create -n seedling python=3.12 pip -y
 conda activate seedling
 # 3. Install dependencies (CMake/LLVM 20 + requirements.txt)
 make setup            # = scripts/bootstrap.sh
@@ -603,6 +603,7 @@ on decision and optimization systems.
 | Symptom | Cause / fix |
 |---|---|
 | `ModuleNotFoundError: No module named 'stws'` | Run from the repo root so the `stws/` stopword package is importable; use `make` or `python -m src.cli`. |
+| `make setup` fails with `No module named pip` | The conda env was created without pip. `make setup` now bootstraps it via `ensurepip`; if that fails, run `conda install -n seedling pip -y` and retry. Recreating the env as `conda create -n seedling python=3.12 pip -y` avoids it. |
 | `No module named 'dotenv'` (or other deps) | Dependencies not installed — run `make setup` (or `pip install -r requirements.txt`) inside the `seedling` env. |
 | `llvmlite` / `numba` build fails | The BERTopic stack needs LLVM 20 + CMake; run `make setup` (installs them on macOS via Homebrew) or install them with your package manager. |
 | `conda activate` picks the wrong Python | `pyenv` shims can shadow conda; use the `make` targets (absolute env path) or call `~/miniforge3/envs/seedling/bin/python` directly. |

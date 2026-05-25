@@ -80,11 +80,20 @@ install_python_dependencies() {
   local py="${PYTHON:-$HOME/miniforge3/envs/seedling/bin/python}"
   if [[ ! -x "$py" ]]; then
     log "ERROR: conda env Python not found at: $py"
-    log "Create the env with: conda create -n seedling python=3.12 -y"
+    log "Create the env with: conda create -n seedling python=3.12 pip -y"
     log "(or export PYTHON=/path/to/python before running this script)"
     exit 1
   fi
   log "Installing Python dependencies into: $py"
+  if ! "$py" -m pip --version >/dev/null 2>&1; then
+    log "pip not found in this env; bootstrapping it with ensurepip..."
+    if ! "$py" -m ensurepip --upgrade; then
+      log "ERROR: could not bootstrap pip into the env. Install it with:"
+      log "  conda install -n seedling pip -y"
+      log "(then rerun: make setup)"
+      exit 1
+    fi
+  fi
   "$py" -m pip install --upgrade pip setuptools wheel
   "$py" -m pip install -r requirements.txt
 }
