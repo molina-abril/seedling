@@ -54,7 +54,7 @@ def fetch_chapters_by_isbn(isbn: str, timeout: float = 15.0) -> list[dict]:
                           'container-title,publisher,abstract,ISBN,type',
             },
             timeout=timeout,
-            headers={'User-Agent': 'lit-review/1.0 (mailto:noreply@example.com)'},
+            headers={'User-Agent': 'seedling/1.0 (mailto:noreply@example.com)'},
         )
     except Exception as exc:
         logger.warning(f'CrossRef ISBN query failed for {isbn}: {exc}')

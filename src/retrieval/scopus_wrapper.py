@@ -18,6 +18,16 @@ logger = logging.getLogger(__name__)
 
 _SCOPUS_SEARCH_URL = "https://api.elsevier.com/content/search/scopus"
 
+
+class ScopusAPIError(RuntimeError):
+    """The Scopus API call itself failed (auth, quota, rate-limit, transport).
+
+    Distinct from a well-formed query that legitimately returns zero results:
+    callers can tell "the API broke" apart from "no matches" instead of
+    silently collapsing both into an empty result set.
+    """
+
+
 class ScopusWrapper:
     """Wrapper around pybliometrics Scopus API for convenient searching and retrieval."""
 
@@ -104,15 +114,18 @@ class ScopusWrapper:
                     timeout=30,
                 )
             except requests.RequestException as exc:
-                logger.error("Scopus sample request failed: %s", exc)
-                break
+                raise ScopusAPIError(
+                    f"Scopus sample request failed for query {query[:80]!r}: {exc}"
+                ) from exc
             if resp.status_code != 200:
-                logger.error(
-                    "Scopus sample HTTP %s: %s", resp.status_code, resp.text[:200]
+                raise ScopusAPIError(
+                    f"Scopus sample HTTP {resp.status_code} for query {query[:80]!r}: "
+                    f"{resp.text[:200]}"
                 )
-                break
             entries = (resp.json().get("search-results", {}) or {}).get("entry", []) or []
             if entries and "error" in entries[0]:
+                # 200 OK carrying an "error" entry is Scopus's marker for a
+                # genuinely empty result set — a real zero, not an API failure.
                 break
             for entry in entries:
                 results.append(self._extract_entry_metadata(entry))

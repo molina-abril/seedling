@@ -77,10 +77,10 @@ ensure_llvm() {
 }
 
 install_python_dependencies() {
-  local py="${PYTHON:-$HOME/miniforge3/envs/lit-review/bin/python}"
+  local py="${PYTHON:-$HOME/miniforge3/envs/seedling/bin/python}"
   if [[ ! -x "$py" ]]; then
     log "ERROR: conda env Python not found at: $py"
-    log "Create the env with: conda create -n lit-review python=3.12 -y"
+    log "Create the env with: conda create -n seedling python=3.12 -y"
     log "(or export PYTHON=/path/to/python before running this script)"
     exit 1
   fi

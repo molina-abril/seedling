@@ -1,7 +1,7 @@
 .PHONY: help check-env bootstrap setup ingest cluster analyze-clusters hierarchy retrieve freeze pipeline test
 
 # ---------------------------------------------------------------------------
-# Entorno estandar del proyecto: conda 'lit-review'.
+# Entorno estandar del proyecto: conda 'seedling'.
 #
 # Se invoca por RUTA ABSOLUTA a proposito: en esta maquina los shims de pyenv
 # van antes en el PATH y ensombrecen el `python` de conda, asi que ni
@@ -10,7 +10,7 @@
 # Si tu instalacion de conda/miniforge esta en otra ruta, sobreescribe:
 #   make test CONDA_HOME=/ruta/a/miniforge3
 # ---------------------------------------------------------------------------
-CONDA_ENV  ?= lit-review
+CONDA_ENV  ?= seedling
 CONDA_HOME ?= $(HOME)/miniforge3
 ENV_BIN    := $(CONDA_HOME)/envs/$(CONDA_ENV)/bin
 PYTHON     := $(ENV_BIN)/python

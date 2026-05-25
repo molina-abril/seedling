@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        prog="lit-review",
+        prog="seedling",
         description="Multi-agent literature review pipeline"
     )
     
@@ -1207,6 +1207,9 @@ def run_retrieve(args):
                 fh, indent=2, default=str,
             )
 
+        had_api_error = any(
+            rec.metrics.metadata.get("api_error") for rec in run_result.iterations
+        )
         try:
             focused_payload = {
                 "cluster_id": run_result.cluster_id,
@@ -1225,10 +1228,11 @@ def run_retrieve(args):
             focus_summary.append((
                 cluster_id, label,
                 focused_out.n_kept, focused_out.n_input, focused_out.n_filtered_out,
+                had_api_error,
             ))
         except Exception as exc:
             logger.warning("  Focus phase failed for cluster %s: %s", cluster_id, exc)
-            focus_summary.append((cluster_id, label, 0, 0, 0))
+            focus_summary.append((cluster_id, label, 0, 0, 0, had_api_error))
 
         final = run_result.final_metrics
         if final:
@@ -1250,13 +1254,18 @@ def run_retrieve(args):
             "cid", "kept", "input", "drop", "kept%", "label",
         )
         total_kept = total_input = 0
-        for cid, lbl, n_kept, n_input, n_drop in focus_summary:
+        n_api_errors = 0
+        for cid, lbl, n_kept, n_input, n_drop, api_error in focus_summary:
             pct = (100.0 * n_kept / n_input) if n_input else 0.0
             total_kept += n_kept
             total_input += n_input
+            label_txt = (lbl or "")[:60]
+            if api_error:
+                n_api_errors += 1
+                label_txt = label_txt[:48] + "  ⚠ API-ERROR"
             logger.info(
                 "  %4s  %5d  %5d  %5d  %5.1f%%  %s",
-                cid, n_kept, n_input, n_drop, pct, (lbl or "")[:60],
+                cid, n_kept, n_input, n_drop, pct, label_txt,
             )
         total_pct = (100.0 * total_kept / total_input) if total_input else 0.0
         logger.info("  " + "-" * 78)
@@ -1265,6 +1274,13 @@ def run_retrieve(args):
             "ALL", total_kept, total_input, total_input - total_kept, total_pct,
             f"{len(focus_summary)} clusters",
         )
+        if n_api_errors:
+            logger.warning(
+                "  %d cluster(s) flagged ⚠ API-ERROR: their 0 is a Scopus API failure "
+                "(auth/quota/rate-limit), NOT an empty result set. Re-run those "
+                "clusters once the API recovers.",
+                n_api_errors,
+            )
 
     logger.info("\n" + "=" * 80)
     logger.info("Phase 7 complete!")

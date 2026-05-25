@@ -92,10 +92,10 @@ but a stable, explainable expansion that you can also pin fully (see
 
 ## ⚙️ Environment setup
 
-> **Project environment: conda `lit-review`.**
+> **Project environment: conda `seedling`.**
 > The pipeline, tests and bootstrap all run in this environment. The `make`
 > targets invoke it by **absolute path**
-> (`~/miniforge3/envs/lit-review/bin/...`) on purpose: on machines with
+> (`~/miniforge3/envs/seedling/bin/...`) on purpose: on machines with
 > `pyenv`, its shims come first on `PATH` and shadow conda's `python`, so
 > `conda activate` / `conda run` are not reliable here. If your miniforge
 > lives elsewhere: `make <target> CONDA_HOME=/path/to/miniforge3`.
@@ -103,8 +103,8 @@ but a stable, explainable expansion that you can also pin fully (see
 ```bash
 # 1. Install Miniforge: https://conda-forge.org/download/
 # 2. Create the environment
-conda create -n lit-review python=3.12 -y
-conda activate lit-review
+conda create -n seedling python=3.12 -y
+conda activate seedling
 # 3. Install dependencies (CMake/LLVM 20 + requirements.txt)
 make setup            # = scripts/bootstrap.sh
 ```
@@ -139,6 +139,18 @@ The pipeline degrades gracefully when a key is missing (e.g. the Scopus agent
 disables itself and skips, rather than crashing). PDFs alone give a usable
 baseline.
 
+> **`pybliometrics` credentials & the InstToken footgun.** At runtime the
+> retrieval loop pushes the Scopus key + `instoken` onto `pybliometrics` from
+> `.env`, so the `.env` values win during a normal run. But `pybliometrics` also
+> keeps its own config at `~/.config/pybliometrics.cfg`
+> (`[Authentication] APIKey` / `InstToken`) as a fallback. If that file holds an
+> **InstToken that does not match the API key**, the count-probe path
+> (`get_total_hits`, which routes through `pybliometrics`) fails authentication
+> with *"Institution Token is not associated with API Key"* and surfaces as
+> **0 hits** — easily mistaken for a genuinely empty query. Keep that file's
+> `APIKey`/`InstToken` matching your `.env` (or leave them blank), and remember
+> the env var is the lowercase `instoken`, not `SCOPUS_INSTTOKEN`.
+
 ------------------------------------------------------------------------
 
 ## 🚀 Quick start
@@ -166,7 +178,7 @@ make retrieve ARGS="--cluster-id 10 --max-iterations 8 --target-precision 0.60"
 
 > With `make pipeline`, `ARGS` is routed only to the `cluster` step (use
 > `ARGS="--hitl"` to pause for human review). Equivalent direct invocation:
-> `~/miniforge3/envs/lit-review/bin/python -m src.cli ingest --max-pdfs 10`.
+> `~/miniforge3/envs/seedling/bin/python -m src.cli ingest --max-pdfs 10`.
 
 Auxiliary targets: `make hierarchy` (export the BERTopic topic tree to
 `txt/hierarchy.txt`, consumed by `analyze-clusters`) and `make freeze`
@@ -485,6 +497,14 @@ Weights need not sum to 1 (they are not auto-normalized), but keeping them near
     (`metadata.bertopic_nearest_topic`, `bertopic_similarity_to_cluster`,
     `bertopic_cluster_match`). It is kept separate from the relevance score so
     it can filter/audit output independently.
+-   **API failure vs. empty result** — a Scopus API error (auth, quota,
+    rate-limit, transport) is raised as `ScopusAPIError` rather than silently
+    swallowed as an empty result set. The affected iteration is logged as an
+    error and recorded with `metadata.api_error = true`, and the FOCUS PHASE
+    SUMMARY flags those clusters with **`⚠ API-ERROR`**. A `0` so flagged means
+    *"the API call failed"*, not *"the query legitimately returned nothing"* —
+    re-run just those clusters once the API recovers; the rest of the run is
+    unaffected.
 -   **Stop policy** — the loop stops on success (`recall ≥ min_recall` and
     `est_precision ≥ target_precision`), at `max_iterations`, on a severe recall
     regression (reverts to the best iteration), on repeated precision failures
@@ -583,11 +603,12 @@ on decision and optimization systems.
 | Symptom | Cause / fix |
 |---|---|
 | `ModuleNotFoundError: No module named 'stws'` | Run from the repo root so the `stws/` stopword package is importable; use `make` or `python -m src.cli`. |
-| `No module named 'dotenv'` (or other deps) | Dependencies not installed — run `make setup` (or `pip install -r requirements.txt`) inside the `lit-review` env. |
+| `No module named 'dotenv'` (or other deps) | Dependencies not installed — run `make setup` (or `pip install -r requirements.txt`) inside the `seedling` env. |
 | `llvmlite` / `numba` build fails | The BERTopic stack needs LLVM 20 + CMake; run `make setup` (installs them on macOS via Homebrew) or install them with your package manager. |
-| `conda activate` picks the wrong Python | `pyenv` shims can shadow conda; use the `make` targets (absolute env path) or call `~/miniforge3/envs/lit-review/bin/python` directly. |
-| Scopus `401` / empty results | Check `SCOPUS_API_KEY` + `instoken` in `.env`, and that your institution's subscription covers the query. |
+| `conda activate` picks the wrong Python | `pyenv` shims can shadow conda; use the `make` targets (absolute env path) or call `~/miniforge3/envs/seedling/bin/python` directly. |
+| Scopus `401` / empty results | Check `SCOPUS_API_KEY` + `instoken` in `.env`, and that your institution's subscription covers the query. Also check `~/.config/pybliometrics.cfg`: a stale `InstToken` there that doesn't match the key fails auth (*"Institution Token is not associated with API Key"*) and shows up as **0 hits**. |
 | Scopus `429` (quota) | Quota hit; reuse the disk cache (re-run identical queries) or wait for the quota window to reset. |
+| Cluster shows `0` flagged `⚠ API-ERROR` in the FOCUS PHASE SUMMARY | The `0` is a Scopus API failure (auth/quota/rate-limit/transport), not an empty result. Fix credentials/quota, then re-run only those clusters: `make retrieve ARGS="--cluster-id <ID>"`. |
 | `retrieve` aborts: enriched clusters required | Run `make analyze-clusters` first — `retrieve` needs `clusters_enriched.json`. |
 | LLM steps are skipped | `OPENAI_API_KEY` missing — set it in `.env`, or accept the deterministic non-LLM fallbacks. |
 

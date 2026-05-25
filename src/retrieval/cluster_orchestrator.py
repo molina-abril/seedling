@@ -16,6 +16,7 @@ output. Provenance keeps the iteration index for every retrieved paper.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from src.models.paper import Paper
@@ -41,6 +42,23 @@ from src.retrieval.feedback_actions import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A quoted Scopus phrase only matches when it appears verbatim, so OR-block
+# phrases carrying clause punctuation, PDF-extraction glue ("AutoGen2is" — a
+# lost space), or whole-sentence runs silently return zero hits. Drop them.
+_GLUED_ALNUM_RE = re.compile(r"[A-Za-z]+\d+[A-Za-z]")
+
+
+def _is_usable_or_phrase(phrase: str) -> bool:
+    """True if ``phrase`` is safe to quote as an exact Scopus search term."""
+    p = (phrase or "").strip()
+    if not p:
+        return False
+    if any(ch in p for ch in ",;:"):
+        return False
+    if _GLUED_ALNUM_RE.search(p):
+        return False
+    return len(p.split()) <= 6
 
 
 class ClusterOrchestrator:
@@ -103,8 +121,8 @@ class ClusterOrchestrator:
             if t and t.strip()
         ]
         exclusions: List[str] = [
-            e.strip() for e in ((brief or {}).get("suggested_query_exclusions") or [])
-            if e and e.strip()
+            e.strip().strip('"“”') for e in ((brief or {}).get("suggested_query_exclusions") or [])
+            if e and e.strip().strip('"“”')
         ]
         recall_safe = [
             p for p in self.query_agent._shared_phrases_across_seeds(seed_papers)
@@ -166,6 +184,26 @@ class ClusterOrchestrator:
                     paper.metadata.setdefault("found_in_iterations", [it])
                     cumulative_papers[key] = paper
 
+            rescued_or_block = False
+            if (
+                not iteration_results.papers
+                and not iteration_results.metadata.get("api_error")
+                and it < self.stop_policy.t.max_iterations
+            ):
+                new_terms = [
+                    p for p in self._fallback_or_phrases(brief)
+                    if p.lower() not in {b.lower() for b in base_or_phrases}
+                ]
+                if new_terms:
+                    base_or_phrases = base_or_phrases + new_terms
+                    rescued_or_block = True
+                    logger.warning(
+                        "  Cluster %s iter %d: well-formed query returned 0 papers; "
+                        "folding brief distinctive/characterizing terms into the OR-block "
+                        "for the next iteration: %s",
+                        cluster_id, it, new_terms,
+                    )
+
             aggregated_now = AggregatedRetrievalResults(
                 cluster_id=cluster_id,
                 all_papers=list(cumulative_papers.values()),
@@ -215,6 +253,16 @@ class ClusterOrchestrator:
             iter_metrics.metadata["total_hits"] = total_hits_iter
             iter_metrics.metadata["over_broad"] = over_broad
             iter_metrics.metadata["iteration_query"] = strategy.query_text
+            if iteration_results.error:
+                iter_metrics.metadata["retrieval_error"] = iteration_results.error
+                iter_metrics.metadata["api_error"] = bool(
+                    iteration_results.metadata.get("api_error")
+                )
+                logger.error(
+                    "  Iteration %d retrieval FAILED for cluster %s (0 papers is an "
+                    "error, not an empty result set): %s",
+                    it, cluster_id, iteration_results.error,
+                )
             metrics_history.append(iter_metrics)
 
             found_pids = set(
@@ -284,6 +332,7 @@ class ClusterOrchestrator:
             skip_add = (
                 {c.lower() for c in applied_constraints}
                 | {c.lower() for c in llm_applied_history}
+                | {p.lower() for p in base_or_phrases}
                 | llm_dropped
             )
             skip_exclude = {e.lower() for e in exclusions}
@@ -311,14 +360,21 @@ class ClusterOrchestrator:
 
             chosen_add: Optional[str] = None
             add_source = "none"
-            for phrase in filtered.add_accepted:
-                chosen_add = phrase
-                add_source = "llm"
-                break
-            if chosen_add is None and constraint_cursor < len(recall_safe):
-                chosen_add = recall_safe[constraint_cursor]
-                constraint_cursor += 1
-                add_source = "recall_safe"
+            if not rescued_or_block:
+                for phrase in filtered.add_accepted:
+                    chosen_add = phrase
+                    add_source = "llm"
+                    break
+                while chosen_add is None and constraint_cursor < len(recall_safe):
+                    cand = recall_safe[constraint_cursor]
+                    constraint_cursor += 1
+                    # never AND a phrase already in the OR-block (or already
+                    # applied/dropped): it forces that single term and collapses
+                    # the OR-block — cid 7 hit total_hits=1 via "risk management cycle".
+                    if cand.lower() in skip_add:
+                        continue
+                    chosen_add = cand
+                    add_source = "recall_safe"
 
             if chosen_add is not None:
                 applied_constraints.append(chosen_add)
@@ -470,9 +526,34 @@ class ClusterOrchestrator:
         seen, out = set(), []
         for p in phrases:
             k = p.lower()
-            if p and k not in seen and not _is_umbrella_phrase(p):
+            if (
+                p and k not in seen
+                and _is_usable_or_phrase(p)
+                and not _is_umbrella_phrase(p)
+            ):
                 seen.add(k)
                 out.append(p)
+        return out
+
+    def _fallback_or_phrases(self, brief: Optional[Dict[str, Any]]) -> List[str]:
+        """Clean curated terms to widen the OR-block with when it returns zero
+        hits. ``distinctive_concepts`` / ``characterizing_terms`` are the brief's
+        short, de-noised cluster terms; the verbatim-biased
+        ``suggested_query_concepts`` can miss them (e.g. it keeps a glued
+        "AutoGen2is" fragment while a clean "AutoGen" sits here)."""
+        out: List[str] = []
+        seen: set = set()
+        for key in ("distinctive_concepts", "characterizing_terms"):
+            for c in ((brief or {}).get(key) or []):
+                c = (c or "").strip().strip('"“”')
+                k = c.lower()
+                if (
+                    c and k not in seen
+                    and _is_usable_or_phrase(c)
+                    and not _is_umbrella_phrase(c)
+                ):
+                    seen.add(k)
+                    out.append(c)
         return out
 
     def _axes_pass_hit_floor(self, core_axes: List[List[str]]) -> bool:

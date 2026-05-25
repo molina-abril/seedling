@@ -17,7 +17,7 @@ from src.retrieval.retrieval_models import (
     AggregatedRetrievalResults,
     RecallMetrics
 )
-from src.retrieval.scopus_wrapper import ScopusWrapper
+from src.retrieval.scopus_wrapper import ScopusWrapper, ScopusAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,21 @@ class RetrievalAgent:
                 },
             )
             
+        except ScopusAPIError as e:
+            logger.error(
+                "Scopus API FAILURE for strategy %s (cluster %s) — this is an API "
+                "error (auth/quota/rate-limit/transport), NOT a zero-result query: %s",
+                strategy.strategy_id, strategy.cluster_id, e,
+            )
+            return RetrievalResults(
+                cluster_id=strategy.cluster_id,
+                strategy_id=strategy.strategy_id,
+                papers=[],
+                total_hits=0,
+                query_executed=strategy.query_text,
+                error=str(e),
+                metadata={"api_error": True},
+            )
         except Exception as e:
             logger.error(f"Error executing strategy {strategy.strategy_id}: {e}")
             return RetrievalResults(
