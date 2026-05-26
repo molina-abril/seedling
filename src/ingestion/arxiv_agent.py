@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
@@ -195,7 +196,8 @@ class ArxivIngestAgent:
                 return None
             
             paper = Paper(
-                paper_id=f"arxiv_{arxiv_id}" if arxiv_id else f"arxiv_unknown_{hash(title)}",
+                paper_id=(f"arxiv_{arxiv_id}" if arxiv_id
+                          else f"arxiv_unknown_{hashlib.sha1(title.encode('utf-8')).hexdigest()[:12]}"),
                 title=title,
                 abstract=abstract,
                 keywords=keywords,

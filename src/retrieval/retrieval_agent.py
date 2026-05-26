@@ -1,5 +1,6 @@
 """Retrieval Agent: executes retrieval strategies and measures recall."""
 
+import hashlib
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -238,13 +239,19 @@ class RetrievalAgent:
         rank: int
     ) -> Paper:
         """Convert Scopus result to Paper object with provenance."""
-        paper_id = None
+        # Build a STABLE paper_id: prefer DOI, then the Scopus EID (always present on
+        # search results), then a stable hash of the title. Never use the builtin
+        # hash() (randomised per process via PYTHONHASHSEED) or time.time() — those
+        # gave no-DOI papers a different id every run, making the saved output
+        # non-reproducible (and breaking id-based comparisons across runs).
         if result.get('doi'):
             paper_id = f"scopus_{result['doi'].replace('/', '_')}"
+        elif result.get('eid'):
+            paper_id = f"scopus_{result['eid']}"
         elif result.get('title'):
-            paper_id = f"scopus_{hash(result['title']) % 10000000}"
+            paper_id = f"scopus_{hashlib.sha1(result['title'].encode('utf-8')).hexdigest()[:12]}"
         else:
-            paper_id = f"scopus_{int(time.time() * 1000000)}"
+            paper_id = f"scopus_{hashlib.sha1(repr(sorted(result.items())).encode('utf-8')).hexdigest()[:12]}"
 
         paper = Paper(
             paper_id=paper_id,

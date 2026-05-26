@@ -3,6 +3,7 @@ order, so concurrency does not change which papers are kept (determinism)."""
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import patch
 
 from src.models.paper import Paper
@@ -42,3 +43,20 @@ def test_parallel_coverage_probes_preserve_seed_order():
     cluster = {"cluster_id": 1, "paper_ids": [s.paper_id for s in seeds]}
     rc = a.measure_coverage_recall("q", cluster, seeds)
     assert rc.metadata["found_dois"] == ["10/s1", "10/s3"]  # seed order preserved
+
+
+def test_no_doi_paper_id_is_deterministic():
+    """No-DOI Scopus results must get a STABLE paper_id (EID, else a stable sha1 of
+    the title) — never the per-process builtin hash() — so the saved retrieval output
+    is byte-reproducible across runs and id-based comparisons hold."""
+    a = _agent()
+    by_eid = a._create_paper_from_scopus_result(
+        {"title": "Paper Without DOI", "eid": "2-s2.0-999"},
+        strategy_id="s", query_text="q", rank=0)
+    assert by_eid.paper_id == "scopus_2-s2.0-999"
+
+    r = {"title": "Paper Without DOI Or EID"}
+    expected = "scopus_" + hashlib.sha1(r["title"].encode("utf-8")).hexdigest()[:12]
+    p1 = a._create_paper_from_scopus_result(r, strategy_id="s", query_text="q", rank=0)
+    p2 = a._create_paper_from_scopus_result(r, strategy_id="s", query_text="q", rank=7)
+    assert p1.paper_id == expected == p2.paper_id   # stable + input-determined
