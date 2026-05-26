@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import re
+import threading
 from typing import List, Dict, Any, Optional
 import time
 
@@ -13,6 +14,8 @@ from pybliometrics.scopus import ScopusSearch
 from pybliometrics.scopus.exception import ScopusException, ScopusServerError
 from pybliometrics.scopus.utils import config as _pybl_config
 from pybliometrics.scopus.utils import startup as _pybl_startup
+
+from src.utils.http_retry import get_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -56,19 +59,58 @@ class ScopusWrapper:
             os.environ['SCOPUS_INSTTOKEN'] = inst_token
         self._rate_limit_delay = 0.3
         self._last_call_time = 0.0
+        # Serialises only the *spacing* of request starts, so concurrent callers
+        # (parallel per-year sampling / coverage probes) still issue requests
+        # >= _rate_limit_delay apart while the HTTP round-trips overlap.
+        self._rate_lock = threading.Lock()
 
     def _enforce_rate_limit(self):
-        """Enforce rate limiting to avoid hitting Scopus API limits."""
-        elapsed = time.time() - self._last_call_time
-        if elapsed < self._rate_limit_delay:
-            time.sleep(self._rate_limit_delay - elapsed)
-        self._last_call_time = time.time()
+        """Enforce rate limiting to avoid hitting Scopus API limits (thread-safe)."""
+        with self._rate_lock:
+            elapsed = time.time() - self._last_call_time
+            if elapsed < self._rate_limit_delay:
+                time.sleep(self._rate_limit_delay - elapsed)
+            self._last_call_time = time.time()
 
     def _headers(self) -> Dict[str, str]:
         headers = {"X-ELS-APIKey": self.api_key, "Accept": "application/json"}
         if self.inst_token:
             headers["X-ELS-Insttoken"] = self.inst_token
         return headers
+
+    def _get_with_retries(
+        self,
+        params: Dict[str, Any],
+        query: str,
+    ) -> requests.Response:
+        """GET the Scopus search endpoint via the shared retrying client.
+
+        Transient failures (read/connection timeouts, 429/5xx) are retried with
+        backoff by ``http_retry.get_with_retries``; a single dropped request
+        would otherwise surface as a spurious ⚠ API-ERROR (observed: a 30s read
+        timeout on one cluster iteration). Non-retryable responses (e.g. 400/401)
+        and exhausted retries raise ``ScopusAPIError`` so a genuine, persistent
+        failure stays visible.
+        """
+        self._enforce_rate_limit()
+        try:
+            resp = get_with_retries(
+                _SCOPUS_SEARCH_URL,
+                params=params,
+                headers=self._headers(),
+                timeout=30,
+                log=logger,
+            )
+        except requests.RequestException as exc:
+            raise ScopusAPIError(
+                f"Scopus request failed for query {query[:80]!r} after retries: {exc}"
+            ) from exc
+        if resp.status_code != 200:
+            raise ScopusAPIError(
+                f"Scopus HTTP {resp.status_code} for query {query[:80]!r}: "
+                f"{resp.text[:200]}"
+            )
+        return resp
 
     def search_sample(
         self,
@@ -97,7 +139,6 @@ class ScopusWrapper:
         results: List[Dict[str, Any]] = []
 
         for page in range(n_pages):
-            self._enforce_rate_limit()
             params = {
                 "query": query,
                 "count": page_size,
@@ -106,22 +147,7 @@ class ScopusWrapper:
             }
             if sort:
                 params["sort"] = sort
-            try:
-                resp = requests.get(
-                    _SCOPUS_SEARCH_URL,
-                    headers=self._headers(),
-                    params=params,
-                    timeout=30,
-                )
-            except requests.RequestException as exc:
-                raise ScopusAPIError(
-                    f"Scopus sample request failed for query {query[:80]!r}: {exc}"
-                ) from exc
-            if resp.status_code != 200:
-                raise ScopusAPIError(
-                    f"Scopus sample HTTP {resp.status_code} for query {query[:80]!r}: "
-                    f"{resp.text[:200]}"
-                )
+            resp = self._get_with_retries(params, query)
             entries = (resp.json().get("search-results", {}) or {}).get("entry", []) or []
             if entries and "error" in entries[0]:
                 # 200 OK carrying an "error" entry is Scopus's marker for a

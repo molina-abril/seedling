@@ -78,6 +78,11 @@ class RelevanceScorerAgent:
         self.recency_half_life_years = max(0.5, recency_half_life_years)
         self.recency_reference_year = recency_reference_year
         self.citation_velocity_saturation = max(1.0, citation_velocity_saturation)
+        # Per-text embedding cache: the candidate pool grows each iteration and the
+        # scorer re-ranks the whole pool, so without this every iteration re-embeds
+        # all prior candidates (the dominant non-Scopus cost). Same text -> same
+        # vector, so caching is transparent and keeps scores deterministic.
+        self._emb_cache: Dict[str, np.ndarray] = {}
 
     def _get_model(self):
         if self._model is None:
@@ -87,11 +92,18 @@ class RelevanceScorerAgent:
         return self._model
 
     def _embed(self, texts: Sequence[str]) -> np.ndarray:
+        texts = list(texts)
         if not texts:
             return np.zeros((0, 384), dtype=np.float32)
-        model = self._get_model()
-        vecs = model.encode(list(texts), normalize_embeddings=True, show_progress_bar=False)
-        return np.asarray(vecs, dtype=np.float32)
+        # Embed only texts not seen before (order-preserving dedupe), cache them,
+        # then assemble the result in the requested order.
+        uncached = list(dict.fromkeys(t for t in texts if t not in self._emb_cache))
+        if uncached:
+            model = self._get_model()
+            vecs = model.encode(uncached, normalize_embeddings=True, show_progress_bar=False)
+            for text, vec in zip(uncached, np.asarray(vecs, dtype=np.float32)):
+                self._emb_cache[text] = vec
+        return np.asarray([self._emb_cache[t] for t in texts], dtype=np.float32)
 
     @staticmethod
     def _cosine(a: np.ndarray, b: np.ndarray) -> float:

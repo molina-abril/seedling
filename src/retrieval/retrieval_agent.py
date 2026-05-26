@@ -2,6 +2,7 @@
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Optional, Set
 import json
 from pathlib import Path
@@ -58,6 +59,12 @@ class RetrievalAgent:
         self.sampling_sort = sampling_sort
         self.sampling_reference_year = sampling_reference_year or datetime.now().year
         self._scopus_presence: Dict[str, bool] = {}
+        # Concurrency for the independent, latency-bound Scopus calls (per-year
+        # sampling, per-seed coverage probes). The wrapper's rate limiter still
+        # spaces request starts, so this hides round-trip latency without
+        # exceeding Scopus's rate cap. Results are merged in a fixed order, so
+        # output stays identical to the sequential version.
+        self._max_parallel_requests = 6
 
     def _apply_subject_filter(self, query: str) -> str:
         """AND the configured subject-area clause onto a query (no-op if unset)."""
@@ -137,13 +144,25 @@ class RetrievalAgent:
             seen_keys: Set[str] = set()
             results: List[Dict[str, Any]] = []
             ref_year = self.sampling_reference_year
-            for year in range(ref_year - self.sampling_window_years + 1, ref_year + 1):
-                year_hits = self.scopus.search_sample(
+            years = list(range(ref_year - self.sampling_window_years + 1, ref_year + 1))
+
+            def _fetch_year(year: int) -> List[Dict[str, Any]]:
+                return self.scopus.search_sample(
                     query=effective_query,
                     max_results=self.sampling_per_year,
                     sort=self.sampling_sort,
                     pubyear=year,
                 )
+
+            # Independent per-year fetches run concurrently (the rate limiter still
+            # spaces request starts); ThreadPoolExecutor.map preserves input order,
+            # so merging in ascending-year order dedups to exactly the same papers
+            # as the sequential version.
+            with ThreadPoolExecutor(
+                max_workers=min(self._max_parallel_requests, len(years) or 1)
+            ) as pool:
+                per_year = list(pool.map(_fetch_year, years))
+            for year_hits in per_year:
                 for item in year_hits:
                     key = (item.get("doi") or item.get("eid") or item.get("title") or "").lower()
                     if not key or key in seen_keys:
@@ -383,6 +402,9 @@ class RetrievalAgent:
 
         effective_query = self._apply_subject_filter(query_text)
 
+        # Classify seeds first (presence check is cached, so cheap after warm-up);
+        # this keeps no_doi / not_in_scopus / probeable in seed order.
+        to_probe: List[tuple] = []  # (seed, doi) in seed order
         for seed in seed_papers:
             doi = self._normalize_doi(seed.doi)
             if not doi:
@@ -392,10 +414,23 @@ class RetrievalAgent:
                 not_in_scopus.append(seed.paper_id)
                 continue
             probeable.append(seed)
-            probe = f'({effective_query}) AND DOI("{doi}")'
-            hits = self.scopus.get_total_hits(probe)
-            if hits and hits > 0:
-                found.append(seed)
+            to_probe.append((seed, doi))
+
+        # The per-seed coverage probe `(query) AND DOI(seed)` is the repeated,
+        # latency-bound cost; run the probes concurrently. map() preserves order,
+        # so `found` stays in seed order (deterministic).
+        def _covered(seed_doi: tuple) -> bool:
+            _seed, doi = seed_doi
+            hits = self.scopus.get_total_hits(f'({effective_query}) AND DOI("{doi}")')
+            return bool(hits and hits > 0)
+
+        if to_probe:
+            with ThreadPoolExecutor(
+                max_workers=min(self._max_parallel_requests, len(to_probe))
+            ) as pool:
+                for (seed, _doi), covered in zip(to_probe, pool.map(_covered, to_probe)):
+                    if covered:
+                        found.append(seed)
 
         n_found = len(found)
         n_probeable = len(probeable)

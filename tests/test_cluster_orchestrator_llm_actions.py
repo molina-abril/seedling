@@ -152,6 +152,7 @@ def _make_orchestrator(
         reviewer=reviewer,
         stop_policy=stop_policy,
         max_results_per_iteration=10,
+        deterministic_query=False,
     )
     return orch, retrieval_agent, reviewer
 
@@ -366,6 +367,7 @@ def _orchestrator_with_recall_router(
         scorer_agent=scorer_agent, evaluator=evaluator,
         reviewer=reviewer, stop_policy=stop_policy,
         max_results_per_iteration=10,
+        deterministic_query=False,
     )
     return orch, retrieval_agent
 

@@ -977,16 +977,34 @@ def run_retrieve(args):
 
     enriched_by_key = load_enriched_papers_by_pdf_key(args.enriched_papers)
 
-    logger.info("Loading PDF fallback metadata from %s...", args.papers_dir)
-    try:
-        fallback_papers = load_papers_from_pdf_directory(str(args.papers_dir), verbose=False)
-        fallback_by_key = {p.paper_id: p for p in fallback_papers}
-    except Exception as exc:
-        logger.warning("PDF fallback loader failed: %s", exc)
-        fallback_by_key = {}
+    # The PDF fallback is only consulted for cluster seeds NOT already covered by
+    # the enriched papers. papers.json indexes every paper under both its `p_...`
+    # and `pdf_<stem>` keys, so normally nothing is missing — and re-extracting the
+    # text of every PDF up front is slow. Only parse the PDFs if a seed is actually
+    # unresolved (behaviour-preserving: the fallback still loads when truly needed).
+    all_seed_ids = {
+        pid for c in clusters_data for pid in (c.get("paper_ids") or [])
+    }
+    missing = [pid for pid in all_seed_ids if pid not in enriched_by_key]
+    fallback_by_key = {}
+    if missing:
+        logger.info(
+            "Loading PDF fallback metadata from %s (%d seed(s) missing from enriched)...",
+            args.papers_dir, len(missing),
+        )
+        try:
+            fallback_papers = load_papers_from_pdf_directory(str(args.papers_dir), verbose=False)
+            fallback_by_key = {p.paper_id: p for p in fallback_papers}
+        except Exception as exc:
+            logger.warning("PDF fallback loader failed: %s", exc)
+    else:
+        logger.info("All cluster seeds resolved from enriched papers; skipping PDF re-parse.")
 
     if args.cluster_id == -1:
-        clusters_to_process = [c for c in clusters_data if c.get("cluster_id") != -1]
+        clusters_to_process = sorted(
+            (c for c in clusters_data if c.get("cluster_id") != -1),
+            key=lambda c: c.get("cluster_id", 0),
+        )
         if any(c.get("cluster_id") == -1 for c in clusters_data):
             logger.info("Skipping BERTopic noise cluster (-1) in retrieval.")
     else:
@@ -1281,6 +1299,28 @@ def run_retrieve(args):
                 "clusters once the API recovers.",
                 n_api_errors,
             )
+
+        # Per-cluster quality report: relevance-component means + BERTopic affinity
+        # over the kept papers, so each run self-documents how on-topic/relevant the
+        # output is and which score component drives it. Saved under retrieval/quality/.
+        try:
+            from src.retrieval.quality_report import (
+                build_quality_report, format_quality_table, save_quality_report,
+            )
+            w = scoring.weights
+            weights = {
+                "lexical": w.lexical, "semantic": w.semantic, "concept": w.concept,
+                "seed_overlap": w.seed_overlap, "recency": w.recency,
+                "citation_velocity": w.citation_velocity, "work_type_match": w.work_type_match,
+            }
+            labels = {cid: lbl for cid, lbl, *_ in focus_summary}
+            quality = build_quality_report(focused_dir, timestamp, labels=labels, weights=weights)
+            logger.info("\n" + "=" * 80)
+            logger.info("\n" + format_quality_table(quality))
+            qpath = save_quality_report(quality, retrieval_dir / "quality", timestamp)
+            logger.info("Quality report saved -> %s", qpath)
+        except Exception as exc:
+            logger.warning("Quality report generation failed: %s", exc)
 
     logger.info("\n" + "=" * 80)
     logger.info("Phase 7 complete!")

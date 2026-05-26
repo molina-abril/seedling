@@ -1,7 +1,8 @@
-"""ArXiv search must retry on 429 instead of silently returning [].
+"""ArXiv search must retry transient failures (429 and 5xx) instead of silently
+returning []; client errors (4xx) still fail fast.
 
-Pins the retry-with-backoff behaviour with a mocked transport (no network,
-no real sleeps).
+Pins the retry-with-backoff behaviour (shared src.utils.http_retry) with a
+mocked transport (no network, no real sleeps).
 """
 
 from __future__ import annotations
@@ -59,10 +60,20 @@ def test_gives_up_after_max_retries(agent):
     assert papers == []
 
 
-def test_non_429_error_returns_immediately(agent):
-    """A 500 is a hard miss: no retry, return [] on the first response."""
+def test_retries_then_gives_up_on_500(agent):
+    """A 5xx is a transient server error: retried with backoff like 429, then
+    returns [] — a dropped call would otherwise silently lose candidates."""
     with patch("src.ingestion.arxiv_agent.requests.get", return_value=_resp(500)) as gget, \
-         patch("src.ingestion.arxiv_agent.time.sleep"):
+         patch("src.utils.http_retry.time.sleep"):
+        papers = agent.search_by_title("Attention Is All You Need")
+    assert gget.call_count == agent.rate_limit_max_retries + 1
+    assert papers == []
+
+
+def test_client_error_returns_immediately(agent):
+    """A 4xx (e.g. 404) is a hard miss: no retry, return [] on the first response."""
+    with patch("src.ingestion.arxiv_agent.requests.get", return_value=_resp(404)) as gget, \
+         patch("src.utils.http_retry.time.sleep"):
         papers = agent.search_by_title("Attention Is All You Need")
     assert gget.call_count == 1
     assert papers == []

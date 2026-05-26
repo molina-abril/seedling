@@ -18,6 +18,7 @@ from hdbscan import HDBSCAN
 
 from src.models.paper import Paper
 from src.models.cluster import Cluster
+from src.clustering.keyphrases import cluster_keyphrases
 from src.utils.config import ConfigManager
 from src.utils.text import clear_text
 from src.utils.term_cleaner import TermCleaner
@@ -498,7 +499,30 @@ class ClusteringAgent:
 
         clusters = []
         term_cleaner = TermCleaner()
-        for topic_id, paper_ids in topic_to_papers.items():
+        pid_to_paper = {p.paper_id: p for p in papers}
+
+        def _cluster_doc(pids: List[str]) -> str:
+            parts = []
+            for pid in pids:
+                p = pid_to_paper.get(pid)
+                if p is None:
+                    continue
+                parts.append(" ".join([
+                    p.title or "", p.abstract or "", " ".join(p.keywords or []),
+                ]))
+            return " ".join(parts).lower()
+
+        # Deterministic ordering: clusters by topic_id, papers by paper_id within
+        # each. Clustering is order-invariant, but a stable serialised order keeps
+        # the LLM brief context (and any order-sensitive step) identical run-to-run.
+        sorted_items = [(tid, sorted(pids)) for tid, pids in sorted(topic_to_papers.items())]
+        # Deterministic multi-word keyphrases (class-based c-TF-IDF over n-grams),
+        # computed across all clusters at once: the stable query backbone, byte-
+        # identical for a fixed corpus and independent of the LLM brief.
+        top_phrases_per_cluster = cluster_keyphrases(
+            [_cluster_doc(pids) for _tid, pids in sorted_items]
+        )
+        for idx, (topic_id, paper_ids) in enumerate(sorted_items):
             try:
                 topic_info = self.topic_model.get_topic(topic_id)
                 top_terms = [term for term, _ in topic_info[:10]] if topic_info else []
@@ -518,6 +542,7 @@ class ClusteringAgent:
                 cluster_id=int(topic_id),
                 label=label,
                 top_terms=cleaned_terms,
+                top_phrases=top_phrases_per_cluster[idx],
                 paper_ids=paper_ids,
                 representative_paper_ids=representative_ids,
                 is_noise=(topic_id == -1)

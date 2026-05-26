@@ -37,6 +37,73 @@ from src.retrieval.retrieval_models import (
 
 logger = logging.getLogger(__name__)
 
+# Fixed seed for the brief LLM call: best-effort determinism (OpenAI does not
+# fully guarantee identical output even at temperature=0). Matches the clustering
+# random_state for project-wide consistency.
+_BRIEF_SEED = 1001
+
+
+def _arr(desc: str = "") -> Dict[str, Any]:
+    return {"type": "array", "items": {"type": "string"}}
+
+
+# Strict JSON schema for the brief: pins the output STRUCTURE (fields, types) so
+# only the wording can vary, never the shape. Every property is required and
+# additionalProperties is false, as OpenAI structured-output strict mode requires.
+def _obj(props: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": props,
+        "required": list(props.keys()),
+        "additionalProperties": False,
+    }
+
+
+_BRIEF_JSON_SCHEMA: Dict[str, Any] = _obj({
+    "synthesized_theme": {"type": "string"},
+    "cluster_rationale": {"type": "string"},
+    "work_type": {"type": "string"},
+    "work_type_terms": _arr(),
+    "coherence": {"type": "string", "enum": ["high", "medium", "low"]},
+    "coherence_reasoning": {"type": "string"},
+    "distinctive_concepts": _arr(),
+    "characterizing_terms": _arr(),
+    "contrast_with_other_clusters": {
+        "type": "array",
+        "items": _obj({
+            "other_cluster_id": {"type": "integer"},
+            "other_label": {"type": "string"},
+            "why_not_there": {"type": "string"},
+        }),
+    },
+    "anomalous_papers": {
+        "type": "array",
+        "items": _obj({
+            "paper_id": {"type": "string"},
+            "title": {"type": "string"},
+            "reason": {"type": "string"},
+            "suggested_action": {
+                "type": "string",
+                "enum": ["exclude_from_seeds", "keep_with_warning", "split_into_micro_cluster"],
+            },
+        }),
+    },
+    "suggested_query_concepts": _arr(),
+    "suggested_query_exclusions": _arr(),
+    "core_query_axes": {
+        "type": "array",
+        "items": {"type": "array", "items": {"type": "string"}},
+    },
+    "seed_papers_summary": {
+        "type": "array",
+        "items": _obj({
+            "paper_id": {"type": "string"},
+            "title": {"type": "string"},
+            "takeaway": {"type": "string"},
+        }),
+    },
+})
+
 
 @dataclass
 class _ClusterCompute:
@@ -243,19 +310,44 @@ class ClusterAnalysisAgent:
 
         user = json.dumps(user_payload, indent=2, ensure_ascii=False)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {
-                    "role": "user",
-                    "content": user
-                    + "\n\nReturn ONLY a JSON object matching the schema. No markdown.",
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": user
+                + "\n\nReturn ONLY a JSON object matching the schema. No markdown.",
+            },
+        ]
+        # Fixed seed + strict structured output minimise run-to-run variation of the
+        # brief. Fall back to a plain JSON object if the model/SDK rejects the schema,
+        # so brief generation never breaks on an unsupported response_format.
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.0,
+                seed=_BRIEF_SEED,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "cluster_brief",
+                        "strict": True,
+                        "schema": _BRIEF_JSON_SCHEMA,
+                    },
                 },
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"},
-        )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Structured-output schema rejected (%s); falling back to json_object.",
+                exc,
+            )
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.0,
+                seed=_BRIEF_SEED,
+                response_format={"type": "json_object"},
+            )
         payload = json.loads(response.choices[0].message.content)
 
         contrasts = [

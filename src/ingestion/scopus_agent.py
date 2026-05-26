@@ -13,6 +13,7 @@ import logging
 from src.models import Paper, Provenance
 from src.config.env import get_scopus_api_key, get_scopus_insttoken
 from src.ingestion.scopus_cache import GLOBAL_SCOPUS_CACHE
+from src.utils.http_retry import get_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -209,19 +210,26 @@ class ScopusIngestAgent:
         if self.insttoken:
             params['view'] = 'COMPLETE'
         
+        # Retry transient failures so the enrichment call reliably completes; a
+        # dropped call would return None and leave the paper with its un-enriched
+        # PDF text, shifting the clustering corpus between runs. See http_retry.
         try:
-            resp = requests.get(
-                self.SCOPUS_SEARCH_URL,
-                headers=headers,
-                params=params,
-                timeout=30
+            resp = get_with_retries(
+                self.SCOPUS_SEARCH_URL, params=params, headers=headers,
+                timeout=30, log=logger,
             )
-        except Exception as e:
-            logger.error(f"Error occurred while querying Scopus: {e}")
+        except requests.RequestException as e:
+            logger.error(
+                "Scopus query failed after retries (%s); paper left un-enriched, "
+                "which perturbs the clustering corpus: %s", e, query,
+            )
             return None
-        
+
         if resp.status_code != 200:
-            logger.error(f"Scopus query failed: {query} | Status: {resp.status_code}")
+            logger.error(
+                "Scopus query failed: %s | Status: %s (paper left un-enriched; "
+                "corpus may drift between runs)", query, resp.status_code,
+            )
             return None
         
         try:

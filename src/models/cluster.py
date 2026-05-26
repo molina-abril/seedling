@@ -22,6 +22,12 @@ class Cluster(BaseModel):
         default_factory=list,
         description="Top distinguishing terms for this cluster (from BERTopic c-TF-IDF)"
     )
+    top_phrases: List[str] = Field(
+        default_factory=list,
+        description="Deterministic multi-word keyphrases (class-based c-TF-IDF over "
+        "n-grams). Reproducible given a fixed corpus; used as the stable backbone of "
+        "the retrieval query, independent of the LLM brief."
+    )
     paper_ids: List[str] = Field(
         default_factory=list,
         description="List of all paper IDs in this cluster"

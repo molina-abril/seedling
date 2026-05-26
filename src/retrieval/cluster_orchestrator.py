@@ -76,6 +76,7 @@ class ClusterOrchestrator:
         scopus_probe_for_add: bool = True,
         core_axes_max: int = 2,
         core_axes_min_hits: int = 2000,
+        deterministic_query: bool = True,
     ):
         self.query_agent = query_agent
         self.retrieval_agent = retrieval_agent
@@ -88,6 +89,13 @@ class ClusterOrchestrator:
         self.absolute_recall_floor = absolute_recall_floor
         self.core_axes_max = core_axes_max
         self.core_axes_min_hits = core_axes_min_hits
+        # When True (default), the Scopus query is built ONLY from deterministic
+        # signals (cluster top_phrases + per-seed phrases + recall-safe constraints
+        # + a fixed work-type lexicon); no LLM output enters the query, so the same
+        # corpus always returns the same articles. False keeps the legacy
+        # LLM-steered query (core_query_axes, suggested concepts/exclusions, reviewer
+        # add/exclude actions, reviewer-driven stop).
+        self.deterministic_query = deterministic_query
         self.scopus_probe_for_add = scopus_probe_for_add
 
     def run(
@@ -111,19 +119,29 @@ class ClusterOrchestrator:
         previous_feedback: Optional[Dict[str, Any]] = None
         stop_reason = "max_iterations reached"
 
-        core_axes = self._validated_core_axes(brief, seed_papers)
-        if core_axes and not self._axes_pass_hit_floor(core_axes):
-            core_axes = []
-        base_or_phrases = self._initial_or_phrases(brief, seed_papers)
-        work_type_terms = [
-            t.strip().strip('"“”')
-            for t in ((brief or {}).get("work_type_terms") or [])
-            if t and t.strip()
-        ]
-        exclusions: List[str] = [
-            e.strip().strip('"“”') for e in ((brief or {}).get("suggested_query_exclusions") or [])
-            if e and e.strip().strip('"“”')
-        ]
+        if self.deterministic_query:
+            # No LLM input in the query: drop core_query_axes and suggested
+            # exclusions; derive work-type from a fixed lexicon, not the brief.
+            core_axes: List[List[str]] = []
+            work_type_terms = self._deterministic_work_type_terms(seed_papers)
+            exclusions: List[str] = []
+        else:
+            core_axes = self._validated_core_axes(brief, seed_papers)
+            if core_axes and not self._axes_pass_hit_floor(core_axes):
+                core_axes = []
+            work_type_terms = [
+                t.strip().strip('"“”')
+                for t in ((brief or {}).get("work_type_terms") or [])
+                if t and t.strip()
+            ]
+            exclusions = [
+                e.strip().strip('"“”') for e in ((brief or {}).get("suggested_query_exclusions") or [])
+                if e and e.strip().strip('"“”')
+            ]
+        base_or_phrases = self._initial_or_phrases(
+            brief, seed_papers, cluster.get("top_phrases"),
+            include_llm_concepts=not self.deterministic_query,
+        )
         recall_safe = [
             p for p in self.query_agent._shared_phrases_across_seeds(seed_papers)
             if p.lower() not in {w.lower() for w in work_type_terms}
@@ -268,20 +286,27 @@ class ClusterOrchestrator:
             found_pids = set(
                 recall_metrics.metadata.get("found_paper_ids", []) or []
             )
-            missing_seeds = [s for s in seed_papers if s.paper_id not in found_pids]
-            feedback = self.reviewer.review(
-                cluster=cluster,
-                iteration=it,
-                query_text=strategy.query_text,
-                ranked_top=ranked[: self.evaluator.top_k],
-                metrics=iter_metrics,
-                min_recall=self.stop_policy.t.min_recall,
-                min_precision=self.stop_policy.t.min_estimated_precision,
-                brief=brief,
-                missing_seeds=missing_seeds,
-            )
+            # In deterministic mode the reviewer influences neither the query nor
+            # the stop decision, so we skip the LLM call entirely (no wasted cost,
+            # no non-deterministic artefact). feedback stays None.
+            feedback: Optional[ReviewFeedback] = None
+            if not self.deterministic_query:
+                missing_seeds = [s for s in seed_papers if s.paper_id not in found_pids]
+                feedback = self.reviewer.review(
+                    cluster=cluster,
+                    iteration=it,
+                    query_text=strategy.query_text,
+                    ranked_top=ranked[: self.evaluator.top_k],
+                    metrics=iter_metrics,
+                    min_recall=self.stop_policy.t.min_recall,
+                    min_precision=self.stop_policy.t.min_estimated_precision,
+                    brief=brief,
+                    missing_seeds=missing_seeds,
+                )
 
-            decision: StopDecision = self.stop_policy.should_stop(metrics_history, feedback)
+            decision: StopDecision = self.stop_policy.should_stop(
+                metrics_history, feedback
+            )
             iteration_records.append(
                 IterationRecord(
                     iteration=it,
@@ -298,7 +323,8 @@ class ClusterOrchestrator:
                 iter_metrics.focus_score, decision.stop, decision.reason,
             )
 
-            previous_feedback = feedback.model_dump()
+            if feedback is not None:
+                previous_feedback = feedback.model_dump()
 
             if base_recall is None:
                 base_recall = iter_metrics.recall
@@ -325,56 +351,61 @@ class ClusterOrchestrator:
                     dropped, iter_metrics.recall, reason,
                 )
 
-            covered_seeds = [s for s in seed_papers if s.paper_id in found_pids]
-            validation_seeds = covered_seeds if covered_seeds else seed_papers
-
-            parsed = parse_suggested_actions(feedback.suggested_actions)
+            chosen_add: Optional[str] = None
+            add_source = "none"
+            # never AND a phrase already in the OR-block (or already applied/
+            # dropped): it forces that single term and collapses the OR-block —
+            # cid 7 hit total_hits=1 via "risk management cycle".
             skip_add = (
                 {c.lower() for c in applied_constraints}
                 | {c.lower() for c in llm_applied_history}
                 | {p.lower() for p in base_or_phrases}
                 | llm_dropped
             )
-            skip_exclude = {e.lower() for e in exclusions}
-            filtered: FilteredActions = filter_actions(
-                parsed,
-                seeds=validation_seeds,
-                min_seed_fraction=self.llm_seed_fraction_floor,
-                skip_existing_add=skip_add,
-                skip_existing_exclude=skip_exclude,
-            )
 
-            if self.scopus_probe_for_add and filtered.add_accepted and validation_seeds:
-                verified, scopus_rejected = self._probe_adds_via_scopus(
-                    strategy.query_text,
-                    filtered.add_accepted,
-                    validation_seeds,
-                    cluster,
+            if not self.deterministic_query:
+                # Legacy LLM-steered narrowing + exclusions from reviewer actions.
+                covered_seeds = [s for s in seed_papers if s.paper_id in found_pids]
+                validation_seeds = covered_seeds if covered_seeds else seed_papers
+                parsed = parse_suggested_actions(feedback.suggested_actions)
+                skip_exclude = {e.lower() for e in exclusions}
+                filtered: FilteredActions = filter_actions(
+                    parsed,
+                    seeds=validation_seeds,
+                    min_seed_fraction=self.llm_seed_fraction_floor,
+                    skip_existing_add=skip_add,
+                    skip_existing_exclude=skip_exclude,
                 )
-                filtered.add_accepted = verified
-                filtered.rejected.extend(scopus_rejected)
+                if self.scopus_probe_for_add and filtered.add_accepted and validation_seeds:
+                    verified, scopus_rejected = self._probe_adds_via_scopus(
+                        strategy.query_text,
+                        filtered.add_accepted,
+                        validation_seeds,
+                        cluster,
+                    )
+                    filtered.add_accepted = verified
+                    filtered.rejected.extend(scopus_rejected)
+                for phrase in filtered.exclude_accepted:
+                    exclusions.append(phrase)
+                    logger.info("Next: EXCLUDE (LLM) %r", phrase)
+                if not rescued_or_block:
+                    for phrase in filtered.add_accepted:
+                        chosen_add = phrase
+                        add_source = "llm"
+                        break
 
-            for phrase in filtered.exclude_accepted:
-                exclusions.append(phrase)
-                logger.info("Next: EXCLUDE (LLM) %r", phrase)
-
-            chosen_add: Optional[str] = None
-            add_source = "none"
-            if not rescued_or_block:
-                for phrase in filtered.add_accepted:
-                    chosen_add = phrase
-                    add_source = "llm"
-                    break
-                while chosen_add is None and constraint_cursor < len(recall_safe):
+            # Deterministic narrowing: AND the next recall-safe phrase (verbatim in
+            # every seed, so it cannot drop a seed). Sole narrowing in deterministic
+            # mode; fallback after LLM adds otherwise.
+            if chosen_add is None and not rescued_or_block:
+                while constraint_cursor < len(recall_safe):
                     cand = recall_safe[constraint_cursor]
                     constraint_cursor += 1
-                    # never AND a phrase already in the OR-block (or already
-                    # applied/dropped): it forces that single term and collapses
-                    # the OR-block — cid 7 hit total_hits=1 via "risk management cycle".
                     if cand.lower() in skip_add:
                         continue
                     chosen_add = cand
                     add_source = "recall_safe"
+                    break
 
             if chosen_add is not None:
                 applied_constraints.append(chosen_add)
@@ -386,18 +417,19 @@ class ClusterOrchestrator:
             else:
                 logger.info("Next: no recall-safe phrases left to narrow with")
 
-            iter_metrics.metadata["llm_actions"] = {
-                "proposed_actions": list(feedback.suggested_actions or []),
-                "parsed_add": list(parsed.add),
-                "parsed_exclude": list(parsed.exclude),
-                "parsed_other": list(parsed.other),
-                "accepted_add": list(filtered.add_accepted),
-                "accepted_exclude": list(filtered.exclude_accepted),
-                "applied_add": chosen_add if add_source == "llm" else None,
-                "rejected": list(filtered.rejected),
-                "add_source": add_source,
-                "min_seed_fraction": self.llm_seed_fraction_floor,
-            }
+            if not self.deterministic_query:
+                iter_metrics.metadata["llm_actions"] = {
+                    "proposed_actions": list(feedback.suggested_actions or []),
+                    "parsed_add": list(parsed.add),
+                    "parsed_exclude": list(parsed.exclude),
+                    "parsed_other": list(parsed.other),
+                    "accepted_add": list(filtered.add_accepted),
+                    "accepted_exclude": list(filtered.exclude_accepted),
+                    "applied_add": chosen_add if add_source == "llm" else None,
+                    "rejected": list(filtered.rejected),
+                    "add_source": add_source,
+                    "min_seed_fraction": self.llm_seed_fraction_floor,
+                }
 
         def _f1(m: IterationMetrics) -> float:
             r, p = m.recall, m.estimated_precision
@@ -507,22 +539,30 @@ class ClusterOrchestrator:
         self,
         brief: Optional[Dict[str, Any]],
         seed_papers: List[Paper],
+        top_phrases: Optional[List[str]] = None,
+        include_llm_concepts: bool = True,
     ) -> List[str]:
         """Build the fixed OR-block phrase list for the query.
 
-        Union of (a) the brief's ``suggested_query_concepts`` and (b) one
-        distinctive phrase per seed (verbatim in that seed's title). (b)
-        guarantees every seed is reachable — the brief concepts alone are only
-        verbatim in *some* cluster paper, not necessarily in every one.
+        Deterministic backbone first, LLM additive second:
+          (a) one distinctive phrase per seed (verbatim in its title) — guarantees
+              every seed stays reachable;
+          (b) the cluster's ``top_phrases`` (deterministic c-TF-IDF keyphrases) —
+              discriminative and byte-identical for a fixed corpus;
+          (c) the brief's ``suggested_query_concepts`` — LLM, varies run-to-run, so
+              it only refines and is usually beyond the OR-block cap.
+        (a)+(b) reproducibly cover the seeds on their own (validated), so the query
+        backbone does not depend on the LLM.
         """
         phrases: List[str] = []
-        if brief:
+        phrases.extend(self.query_agent._per_seed_phrases(seed_papers))
+        phrases.extend(t.strip().strip('"“”') for t in (top_phrases or []) if t and t.strip())
+        if include_llm_concepts and brief:
             phrases.extend(
                 c.strip().strip('"“”')
                 for c in (brief.get("suggested_query_concepts") or [])
                 if c and c.strip()
             )
-        phrases.extend(self.query_agent._per_seed_phrases(seed_papers))
         seen, out = set(), []
         for p in phrases:
             k = p.lower()
@@ -534,6 +574,30 @@ class ClusterOrchestrator:
                 seen.add(k)
                 out.append(p)
         return out
+
+    # Fixed scholarly work-type signal terms — deterministic stand-in for the
+    # brief's LLM-proposed work_type_terms. Only those present verbatim in EVERY
+    # seed are OR-ed into the query's work-type clause, so it can never drop a seed.
+    _WORK_TYPE_LEXICON = (
+        "systematic review", "literature review", "scoping review", "meta-analysis",
+        "review", "survey", "taxonomy", "benchmark", "empirical study", "case study",
+        "comparative study", "perspective", "tutorial", "primer",
+    )
+
+    def _deterministic_work_type_terms(self, seed_papers: List[Paper]) -> List[str]:
+        """Work-type terms from a fixed lexicon present in ALL seed papers.
+
+        Deterministic (depends only on the corpus), unlike the brief's LLM-proposed
+        work_type_terms. Empty when the cluster is work-type-mixed (no lexicon term
+        in every paper) — same effect as the LLM path disabling the clause.
+        """
+        texts = [
+            f"{p.title or ''} {p.abstract or ''} {' '.join(p.keywords or [])}".lower()
+            for p in seed_papers
+        ]
+        if not texts:
+            return []
+        return [term for term in self._WORK_TYPE_LEXICON if all(term in t for t in texts)]
 
     def _fallback_or_phrases(self, brief: Optional[Dict[str, Any]]) -> List[str]:
         """Clean curated terms to widen the OR-block with when it returns zero

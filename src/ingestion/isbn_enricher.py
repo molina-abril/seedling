@@ -19,6 +19,8 @@ from typing import Any, Iterable, Optional
 
 import requests
 
+from src.utils.http_retry import get_with_retries
+
 logger = logging.getLogger(__name__)
 
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
@@ -45,7 +47,7 @@ def extract_isbn_from_pdf(pdf_path: Optional[str]) -> Optional[str]:
 def fetch_chapters_by_isbn(isbn: str, timeout: float = 15.0) -> list[dict]:
     """List CrossRef items associated with the given ISBN. Return [] on error."""
     try:
-        resp = requests.get(
+        resp = get_with_retries(
             CROSSREF_WORKS_URL,
             params={
                 'filter': f'isbn:{isbn}',
@@ -55,9 +57,10 @@ def fetch_chapters_by_isbn(isbn: str, timeout: float = 15.0) -> list[dict]:
             },
             timeout=timeout,
             headers={'User-Agent': 'seedling/1.0 (mailto:noreply@example.com)'},
+            log=logger,
         )
-    except Exception as exc:
-        logger.warning(f'CrossRef ISBN query failed for {isbn}: {exc}')
+    except requests.RequestException as exc:
+        logger.warning(f'CrossRef ISBN query failed for {isbn} after retries: {exc}')
         return []
     if resp.status_code != 200:
         return []

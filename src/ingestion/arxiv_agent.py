@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any
 import requests
 
 from src.models import Paper, Provenance
+from src.utils.http_retry import get_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,12 @@ class ArxivIngestAgent:
             return None
         params = {'id_list': arxiv_id, 'max_results': 1}
         try:
-            resp = requests.get(
-                self.ARXIV_API_URL,
-                params=params,
-                headers=self.DEFAULT_HEADERS,
-                timeout=30,
+            # Retry timeouts/5xx; leave 429 to the caller's sentinel handling.
+            resp = get_with_retries(
+                self.ARXIV_API_URL, params=params, headers=self.DEFAULT_HEADERS,
+                timeout=30, retry_status=frozenset({500, 502, 503, 504}), log=logger,
             )
-        except Exception:
+        except requests.RequestException:
             return None
         if resp.status_code == self.HTTP_RATE_LIMIT:
             return "rate_limited"  # type: ignore[return-value]
@@ -104,30 +104,18 @@ class ArxivIngestAgent:
             'sortOrder': 'descending'
         }
 
-        resp = None
-        backoff = self.rate_limit_backoff
-        for attempt in range(self.rate_limit_max_retries + 1):
-            try:
-                resp = requests.get(
-                    self.ARXIV_API_URL,
-                    params=params,
-                    headers=self.DEFAULT_HEADERS,
-                    timeout=30,
-                )
-            except Exception:
-                return []
-            if resp.status_code == self.HTTP_RATE_LIMIT and attempt < self.rate_limit_max_retries:
-                logger.warning(
-                    "arXiv rate-limited (429) for %r; retry %d/%d in %.0fs",
-                    original_query, attempt + 1, self.rate_limit_max_retries, backoff,
-                )
-                time.sleep(backoff)
-                backoff *= 2
-                continue
-            break
+        try:
+            # Retry timeouts/connection drops and 429/5xx so the search reliably
+            # completes; a dropped call would silently drop these candidates.
+            resp = get_with_retries(
+                self.ARXIV_API_URL, params=params, headers=self.DEFAULT_HEADERS,
+                timeout=30, max_attempts=self.rate_limit_max_retries + 1, log=logger,
+            )
+        except requests.RequestException:
+            return []
 
-        if resp is None or resp.status_code != 200:
-            if resp is not None and resp.status_code == self.HTTP_RATE_LIMIT:
+        if resp.status_code != 200:
+            if resp.status_code == self.HTTP_RATE_LIMIT:
                 logger.warning(
                     "arXiv still rate-limited after %d retries for %r; returning no results",
                     self.rate_limit_max_retries, original_query,

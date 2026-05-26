@@ -70,13 +70,17 @@ discovery** — e.g. as a configurable relevance/ranking layer, a reproducible
 corpus builder, or a component in a larger system. The scoring, the agents and
 the pipeline stages are modular on purpose.
 
-**Determinism.** The pipeline is deterministic by construction: queries are
-built by code, scoring is a fixed formula, and clustering is seeded. The only
-non-determinism comes from the LLM steps (mainly keyword expansion), which may
-occasionally surface a slightly different term. That is expected, given the
-nature of LLMs — the goal is not to reproduce identical similarities every time,
-but a stable, explainable expansion that you can also pin fully (see
-[Reproducibility & caching](#-reproducibility--caching)).
+**Determinism.** The retrieval query is built **entirely from deterministic
+signals** — the cluster's c-TF-IDF keyphrases, one verbatim phrase per seed, and
+recall-safe AND-constraints — **not** from the LLM. So the same corpus produces the
+**same Scopus query and the same articles** on every run (verified: two back-to-back
+runs gave byte-identical queries for all 12 clusters, and identical kept counts;
+any residual difference in *which* papers come back is Scopus re-ranking its own
+index over time, not the pipeline). Clustering is seeded (`random_state`), scoring
+is a fixed formula, and clusters/papers are emitted in a stable sorted order. The
+LLM still writes the human-facing cluster *briefs* (theme, rationale, contrast) and
+that prose can vary run-to-run, but it no longer touches the query. You can also pin
+a run fully (see [Reproducibility & caching](#-reproducibility--caching)).
 
 ------------------------------------------------------------------------
 
@@ -217,7 +221,7 @@ scorer → evaluator → reviewer → stop policy).
 | Clustering | `cluster` | BERTopic: SBERT embeddings → UMAP → HDBSCAN → c-TF-IDF top terms → labels | `results/clustering/clusters.json`, `clustering_metrics.json`, `models/clustering/bertopic_model_<ts>.pkl` |
 | Hierarchy | `hierarchy` | Export a readable BERTopic topic tree | `txt/hierarchy.txt` + scipy artifacts in `results/clustering/` |
 | Cluster analysis | `analyze-clusters` | LLM reads each cluster's papers + nearest neighbours, emits a structured `ClusterBrief` | `results/cluster_analysis/clusters_enriched.json` (**required before `retrieve`**) |
-| Retrieval | `retrieve` | Per-cluster iterative loop: build Scopus query → per-year top-cited sample → hybrid rerank → recall/precision metrics → stop policy → BERTopic membership check | `results/retrieval/{strategies,iterations,results,metrics}/phase7_cluster<ID>_*_<ts>.json` |
+| Retrieval | `retrieve` | Per-cluster iterative loop: build deterministic Scopus query → per-year top-cited sample (concurrent) → hybrid rerank → recall/precision metrics → stop policy → BERTopic membership filter → per-cluster quality report | `results/retrieval/{strategies,iterations,results,metrics,focused,quality}/phase7_cluster<ID>_*_<ts>.json` (+ `quality/quality_report_<ts>.{json,txt}`) |
 
 Per-cluster retrieval files: `..._strategies_*` (the query of each iteration),
 `..._iterations_*` (full trace: query, metrics, reviewer feedback, stop
@@ -497,20 +501,47 @@ Weights need not sum to 1 (they are not auto-normalized), but keeping them near
     (`metadata.bertopic_nearest_topic`, `bertopic_similarity_to_cluster`,
     `bertopic_cluster_match`). It is kept separate from the relevance score so
     it can filter/audit output independently.
--   **API failure vs. empty result** — a Scopus API error (auth, quota,
-    rate-limit, transport) is raised as `ScopusAPIError` rather than silently
-    swallowed as an empty result set. The affected iteration is logged as an
-    error and recorded with `metadata.api_error = true`, and the FOCUS PHASE
-    SUMMARY flags those clusters with **`⚠ API-ERROR`**. A `0` so flagged means
-    *"the API call failed"*, not *"the query legitimately returned nothing"* —
-    re-run just those clusters once the API recovers; the rest of the run is
-    unaffected.
+-   **API failure vs. empty result** — transient Scopus failures (read/connection
+    timeouts, `429`, `5xx`) are retried with exponential backoff first. A failure
+    that persists past the retries — or a non-retryable one (`400`/`401`) — is
+    raised as `ScopusAPIError` rather than silently swallowed as an empty result
+    set. The affected iteration is logged as an error and recorded with
+    `metadata.api_error = true`, and the FOCUS PHASE SUMMARY flags those clusters
+    with **`⚠ API-ERROR`**. A `0` so flagged means *"the API call failed"*, not
+    *"the query legitimately returned nothing"* — re-run just those clusters once
+    the API recovers; the rest of the run is unaffected.
 -   **Stop policy** — the loop stops on success (`recall ≥ min_recall` and
     `est_precision ≥ target_precision`), at `max_iterations`, on a severe recall
     regression (reverts to the best iteration), on repeated precision failures
-    below `min_precision`, on a precision plateau, or when the reviewer returns
-    `stop`. The best iteration is selected by `(recall ≥ min_recall, n_results,
-    recall, estimated_precision)` — recall first.
+    below `min_precision`, or on a precision plateau. The best iteration is selected
+    by `(recall ≥ min_recall, n_results, recall, estimated_precision)` — recall first.
+-   **Per-cluster quality report (auto, every run)** — after the FOCUS PHASE SUMMARY,
+    `retrieve` writes `results/retrieval/quality/quality_report_<ts>.{json,txt}`
+    (also re-runnable on any past run via `python scripts/quality_report.py`). Over
+    each cluster's kept papers it aggregates the **BERTopic affinity** (mean / median
+    / min + how many fall below 0.30, the borderline tail) and the **mean of each
+    relevance component** plus the blended `final`, and names the component that
+    contributes most to the score. Use it to sanity-check that the kept papers are
+    on-topic and to see which signal drives the ranking. Example (fictitious data):
+
+    ```text
+    [1] Kept | relevance | cluster affinity
+    cid kept kept% rel.mu aff.mu aff.min aff<.3  strongest  label
+      0  210   56%  0.41   0.67    0.34       0   semantic   human-AI decision support
+      1   60   12%  0.40   0.62    0.38       0   semantic   LLM-based agents (surveys)
+      2  300   51%  0.31   0.51    0.16       9   semantic   multi-agent trust
+
+    [2] Relevance components (mean; * = strongest weighted contributor to final)
+    cid |  lex    sem    con   seed    rec    cit  wtype | final
+      0 | 0.14  0.42*  0.13   0.61   0.66   0.53   0.44  | 0.41
+      2 | 0.09  0.30*  0.00   0.35   0.71   0.68   0.27  | 0.31
+    ```
+
+    Read it as: cid 1 keeps only 12% but those papers are still high-quality (rel
+    0.40, affinity 0.62, no borderline) → the filter is selective, not random; cid 2
+    is the one to eyeball — high kept% yet lower affinity (min 0.16, 9 borderline),
+    a broad query pulling in marginal papers. (`semantic` is usually the strongest
+    contributor; `concept` near 0 is a known weak signal.)
 
 ------------------------------------------------------------------------
 
@@ -539,9 +570,16 @@ queries** without re-spending API quota:
     `MANIFEST.json`. Frozen files never change unless you re-freeze, giving a
     fully reproducible dataset to build on.
 
-Determinism caveat: the reviewer LLM runs at temperature 0 with a fixed seed,
-and the title-fixer/analysis at temperature 0; only keyword expansion uses a
-small temperature, so an occasional term may differ between runs.
+Determinism note: with the default deterministic query path the **Scopus query no
+longer depends on the LLM** (and the per-iteration reviewer LLM is not even called),
+so a re-run on the same corpus issues identical queries. The cluster *briefs* are
+still LLM-written (temperature 0 + fixed seed + strict JSON, best-effort but not
+guaranteed identical), but their prose doesn't change the query — only the
+human-facing analysis.
+
+Performance note: the per-year sampling and per-seed coverage probes run
+concurrently (bounded by the Scopus rate limit) and candidate embeddings are cached
+across iterations, ~1.8× faster per cluster with **identical results** (verified).
 
 ------------------------------------------------------------------------
 
