@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 [![Status](https://img.shields.io/badge/status-research%20software-orange.svg)](#)
 
-Multi-agent pipeline to search, cluster, expand and evaluate scientific
+Modular, multi-stage pipeline to search, cluster, expand and evaluate scientific
 literature, starting from a handful of seed papers (PDFs). It ingests and
 enriches papers, clusters them with BERTopic, characterizes each cluster with
 an LLM, and runs an iterative Scopus retrieval loop to expand each cluster with
@@ -702,7 +702,7 @@ repository"* button that exports BibTeX/APA):
 ```bibtex
 @software{seedling,
   author  = {Molina Abril, Gines},
-  title   = {{Seedling: a fine-tunable, multi-agent literature-review pipeline}},
+  title   = {{Seedling: a fine-tunable, multi-stage literature-review pipeline}},
   year    = {2026},
   url     = {https://github.com/molina-abril/seedling},
   license = {AGPL-3.0-or-later}
