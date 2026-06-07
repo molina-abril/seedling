@@ -44,6 +44,9 @@ scripts/*
 !scripts/extract_hierarchy.py
 !scripts/freeze_run.py
 !scripts/compute_coherence.py
+!scripts/cluster_seed_map.py
+!scripts/field_shift.py
+!scripts/literature_extension.py
 
 # Artefactos de tests (salidas generadas / notebooks exploratorios)
 tests/results/

@@ -667,6 +667,58 @@ Runs automatically before enrichment (disable with `--skip-title-fixer`):
 
 ------------------------------------------------------------------------
 
+## 🔬 Post-hoc analysis scripts
+
+Self-contained utilities under `scripts/` that read **only frozen artifacts**
+(`results/`, `data/processed/papers.json`) and re-run **no** pipeline stage. They
+produce the reproducible numbers and tables reported in the companion paper, and
+each writes its output under `results/` and prints a summary. All resolve their
+paths relative to the repo root, so they can be run from anywhere.
+
+-   **`cluster_seed_map.py`** — joins the clustering assignment with the seed
+    corpus and lists, per cluster, the seed papers BERTopic assigned to it
+    (id, title, year, venue, DOI). Ground truth for the per-cluster seed lists.
+    Reads `results/clustering/clusters.json` + `data/processed/papers.json`;
+    writes `results/clustering/seed_cluster_map.json`.
+    ```bash
+    python scripts/cluster_seed_map.py
+    ```
+-   **`literature_extension.py`** — the *discovery layer*. For each cluster it
+    ranks the kept (focused) papers by hybrid relevance, drops seeds (by DOI) and
+    republished versions of seeds (by title similarity ≥ 0.85), and keeps the top
+    *N* (default 5). Emits BibTeX entries (deterministic cite keys) and a LaTeX
+    `\citep{...}` table body. Reads `results/retrieval/focused/` + the seed
+    corpus; writes `results/retrieval/literature_extension.{bib,tex}`.
+    ```bash
+    python scripts/literature_extension.py            # top-5, most complete run
+    python scripts/literature_extension.py --top 10 --run 20260526_184803
+    python scripts/literature_extension.py --bib path/to/refs.bib   # avoid key clashes when merging
+    ```
+-   **`field_shift.py`** — quantifies the qualitative observation that the
+    discovery layer traces each theme toward a neighbouring discipline. It
+    classifies seed and discovered venues into the six Scopus broad areas used as
+    the retrieval filter (COMP, BUSI, ENGI, SOCI, DECI, ECON; venue-based proxy,
+    no ASJC code is stored) and reports, per cluster, whether the discovered
+    modal discipline differs from the seeds' and the share falling outside it.
+    Reads `clusters.json` + seed corpus + `results/retrieval/focused/`; writes
+    `results/retrieval/field_shift.json`.
+    ```bash
+    python scripts/field_shift.py
+    ```
+-   **`compute_coherence.py`** — post-hoc `c_v` topic coherence (Röder et al. 2015)
+    of each cluster's c-TF-IDF top terms against the seed corpus. Requires
+    `gensim`. Writes `results/clustering/coherence.json`.
+-   **`extract_hierarchy.py`** — exports the BERTopic Ward-linkage hierarchy
+    (`results/clustering/hierarchy_tree.txt` and friends) behind the supergroup
+    structure.
+
+The most-complete-run helper used by `literature_extension.py` and
+`field_shift.py` selects the run with the most **non-empty** clusters, so a
+single-cluster re-execution or a run with a failed cluster does not shadow the
+canonical full run; pass `--run <timestamp>` to override.
+
+------------------------------------------------------------------------
+
 ## 📁 Project layout
 
 Tracked in the repository:
