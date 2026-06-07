@@ -43,6 +43,7 @@ scripts/*
 !scripts/bootstrap.sh
 !scripts/extract_hierarchy.py
 !scripts/freeze_run.py
+!scripts/compute_coherence.py
 
 # Artefactos de tests (salidas generadas / notebooks exploratorios)
 tests/results/

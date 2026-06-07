@@ -24,6 +24,10 @@ numpy>=1.26,<2
 # hdbscan, torch are included as dependencies of bertopic/sentence-transformers/transformers
 # stws is included locally in stws/ folder
 
+# Topic-coherence (c_v) validation, external post-hoc utility: scripts/compute_coherence.py
+# Verified conflict-free with the pins above (numpy stays 1.26.x; pulls smart_open).
+gensim>=4.0,<5
+
 # Phase 7: Retrieval Agent
 pybliometrics>=3.5.0,<4
 # Fuzzy matching uses rapidfuzz (MIT, declared above). The GPL-licensed
