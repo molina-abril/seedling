@@ -585,14 +585,65 @@ across iterations, ~1.8× faster per cluster with **identical results** (verifie
 
 ## 👤 Human-in-the-loop cluster review (HITL)
 
-Runs in the `cluster` step. `make cluster ARGS="--hitl"` pauses after BERTopic,
-writes an editable snapshot to `results/clustering/cluster_review.yaml`, waits
-for you to edit it and type `ready` in the console, then applies the changes
-before exporting `clusters.json` (requires a stdin TTY). The review lets you
-relabel clusters, move papers, and rescue papers HDBSCAN marked as noise into
-new clusters. Use `--overrides PATH` (without `--hitl`) to apply a prepared
-review YAML non-interactively. The format is shown in
-`configs/clustering/cluster_overrides.yaml`.
+BERTopic's grouping is a starting point, not the last word. The `cluster` step
+lets a human override it deterministically; the edited YAML is the **single
+source of truth** for the change.
+
+**Two ways to run it**
+
+- **Interactive** — `make cluster ARGS="--hitl"` pauses after BERTopic, writes an
+  editable snapshot to `results/clustering/cluster_review.yaml`, and waits for you
+  to edit it and type `ready` in the console (requires a stdin TTY).
+- **Offline** — prepare that same YAML ahead of time and apply it without the
+  prompt: `make cluster ARGS="--overrides path/to/review.yaml"`.
+
+Either way the edits are applied deterministically, `clusters.json` is
+re-exported, and a JSON audit log records the full diff (papers moved, labels
+changed, clusters created/dropped). If any paper changed cluster, the c-TF-IDF
+top terms of the affected clusters are recomputed.
+
+**What you can change** — each is a plain edit to the YAML (format in
+[`configs/clustering/cluster_overrides.yaml`](configs/clustering/cluster_overrides.yaml)):
+
+| Operation | How |
+|---|---|
+| Rename a cluster | edit its `label` (and optional `description`) |
+| Move a paper | list its `id` under a different cluster |
+| Exclude a paper | move its `id` under the noise block (`id: -1`) |
+| Rescue noise into a new cluster | add a block with a fresh `id` and list the paper(s) |
+| Merge / drop a cluster | move its papers elsewhere, then delete the whole block |
+
+**Example** — rename cluster 0, move a paper into it, and rescue a paper that
+HDBSCAN sent to noise into a new cluster 100:
+
+```yaml
+version: 1
+clusters:
+  - id: 0
+    label: "human-centred evaluative decision support"   # renamed
+    papers:
+      - { id: pdf_miller_2023 }
+      - { id: pdf_moved_here }          # moved in from another cluster
+  - id: 100                             # new cluster (rescued from noise, id -1)
+    label: "AI-enabled strategy & decision-making"
+    description: "Manual rescue of papers HDBSCAN marked as noise."
+    papers:
+      - { id: pdf_rescued_strategy }
+  # ... every other cluster and paper must still be listed here ...
+```
+
+Then apply it non-interactively:
+
+```bash
+make cluster ARGS="--overrides review.yaml"
+```
+
+**Safety.** The applier validates *before* touching anything and aborts (writing
+nothing) if the edit is inconsistent: every paper must end in exactly one
+cluster, no paper may be invented (only existing `paper_id`s can be reassigned),
+cluster ids must be unique, and empty cluster blocks are rejected (to drop a
+cluster, remove its block entirely). A bad edit can therefore never silently
+corrupt the corpus.
 
 ------------------------------------------------------------------------
 
