@@ -74,7 +74,7 @@ the pipeline stages are modular on purpose.
 signals** — the cluster's c-TF-IDF keyphrases, one verbatim phrase per seed, and
 recall-safe AND-constraints — **not** from the LLM. So the same corpus produces the
 **same Scopus query and the same articles** on every run (verified: two back-to-back
-runs gave byte-identical queries for all 12 clusters, and identical kept counts;
+runs gave byte-identical queries for all 13 clusters, and identical kept counts;
 any residual difference in *which* papers come back is Scopus re-ranking its own
 index over time, not the pipeline). Clustering is seeded (`random_state`), scoring
 is a fixed formula, and clusters/papers are emitted in a stable sorted order. The
@@ -575,7 +575,12 @@ longer depends on the LLM** (and the per-iteration reviewer LLM is not even call
 so a re-run on the same corpus issues identical queries. The cluster *briefs* are
 still LLM-written (temperature 0 + fixed seed + strict JSON, best-effort but not
 guaranteed identical), but their prose doesn't change the query — only the
-human-facing analysis.
+human-facing analysis. This default can be switched with
+`make retrieve ARGS="--llm-steered"`, which lets the brief steer the query: its
+`core_query_axes`, suggested concepts/exclusions, brief-derived work-type terms,
+and the per-iteration reviewer's add/exclude/stop actions. That mode is more
+adaptive but **no longer byte-reproducible**, because the query then depends on
+non-deterministic LLM output; leave it off for a reproducible corpus.
 
 Performance note: the per-year sampling and per-seed coverage probes run
 concurrently (bounded by the Scopus rate limit) and candidate embeddings are cached

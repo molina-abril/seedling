@@ -295,6 +295,20 @@ def main():
         ),
     )
     retrieve_parser.add_argument(
+        "--llm-steered",
+        action="store_true",
+        help=(
+            "Let the cluster brief steer the Scopus query: core_query_axes, "
+            "suggested concepts/exclusions, brief-derived work-type terms, and the "
+            "reviewer's add/exclude/stop actions. OFF by default, in which case the "
+            "query is built only from deterministic signals (c-TF-IDF keyphrases + "
+            "per-seed phrases + a fixed work-type lexicon), so the same corpus "
+            "returns byte-identical queries and the same articles on every run. "
+            "Turning this on makes retrieval LLM-dependent and no longer "
+            "byte-reproducible."
+        ),
+    )
+    retrieve_parser.add_argument(
         "--core-axes-min-hits",
         type=int,
         default=2000,
@@ -1104,6 +1118,7 @@ def run_retrieve(args):
         stop_policy=stop_policy,
         max_results_per_iteration=args.max_results,
         core_axes_min_hits=args.core_axes_min_hits,
+        deterministic_query=not args.llm_steered,
     )
 
     bertopic_model = None
