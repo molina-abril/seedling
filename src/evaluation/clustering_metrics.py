@@ -58,13 +58,10 @@ def calculate_clustering_metrics(
     metrics['noise_papers'] = total_noise
     metrics['coverage'] = 1.0 - (total_noise / len(papers) if papers else 0.0)
 
-    try:
-        if hasattr(topic_model, 'get_coherence_score'):
-            coherence = topic_model.get_coherence_score()
-            metrics['coherence_score'] = float(coherence) if coherence else None
-    except Exception as e:
-        if verbose:
-            print(f"[Metrics] Could not calculate coherence: {e}")
+    # Topic coherence (c_v, Roeder et al. 2015) is computed post-hoc by the
+    # standalone scripts/compute_coherence.py against the frozen clusters.json, so
+    # gensim is kept out of the clustering pipeline. coherence_score is left None
+    # here; the value is reported in results/clustering/coherence.json instead.
     
     try:
         if hasattr(topic_model, 'embeddings_'):
