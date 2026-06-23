@@ -1,0 +1,24 @@
+{
+  "title": "Seedling: a seed-grown, reproducible literature-review pipeline",
+  "description": "Modular, multi-stage pipeline that grows a reviewed corpus from a small set of seed papers, combining BERTopic clustering, deterministic Scopus and arXiv retrieval, a researcher-weighted hybrid relevance scorer over seven explicit signals, coverage-probe recall and BERTopic membership verification, and an optional frozen, manifest-tracked snapshot for exact reproduction.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "AGPL-3.0-or-later",
+  "version": "1.0.0",
+  "creators": [
+    {
+      "name": "Molina-Abril, Ginés",
+      "affiliation": "Universitat Oberta de Catalunya",
+      "orcid": "0000-0001-7877-0812"
+    }
+  ],
+  "keywords": [
+    "literature review",
+    "systematic review",
+    "evaluative AI",
+    "BERTopic",
+    "information retrieval",
+    "Scopus",
+    "reproducibility"
+  ]
+}

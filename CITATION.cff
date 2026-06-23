@@ -3,22 +3,28 @@ message: "If you use this software, please cite it as below."
 title: "Seedling"
 abstract: >-
   Modular, multi-stage literature-review pipeline that grows a reviewed corpus
-  from a handful of seed papers: BERTopic clustering, Scopus/arXiv retrieval,
-  hybrid relevance re-ranking and iterative LLM-guided query refinement.
+  from a handful of seed papers: BERTopic clustering, deterministic Scopus/arXiv
+  retrieval, a researcher-weighted hybrid relevance scorer over seven explicit
+  signals, coverage-probe recall and BERTopic membership verification, and an
+  optional frozen, manifest-tracked snapshot for exact reproduction.
 type: software
 authors:
   - family-names: "Molina-Abril"
-    given-names: "Gines"
+    given-names: "Ginés"
+    orcid: "https://orcid.org/0000-0001-7877-0812"
+    affiliation: "Universitat Oberta de Catalunya"
 license: AGPL-3.0-or-later
-version: "0.1.0"
-date-released: "2026-05-22"
+version: "1.0.0"
+date-released: "2026-06-23"
 url: "https://github.com/molina-abril/seedling"
 repository-code: "https://github.com/molina-abril/seedling"
 keywords:
   - literature-review
   - systematic-review
+  - evaluative-ai
   - modular-pipeline
   - bertopic
   - information-retrieval
+  - reproducibility
   - arxiv
   - scopus
