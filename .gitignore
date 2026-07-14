@@ -47,6 +47,7 @@ scripts/*
 !scripts/cluster_seed_map.py
 !scripts/field_shift.py
 !scripts/literature_extension.py
+!scripts/seed_ablation.py
 
 # Artefactos de tests (salidas generadas / notebooks exploratorios)
 tests/results/
