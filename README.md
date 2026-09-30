@@ -3,6 +3,7 @@
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3%2B-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 [![Status](https://img.shields.io/badge/status-research%20software-orange.svg)](#)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23065919.svg)](https://doi.org/10.5281/zenodo.23065919)
 
 Modular, multi-stage pipeline to search, cluster, expand and evaluate scientific
 literature, starting from a handful of seed papers (PDFs). It ingests and
