@@ -810,9 +810,11 @@ repository"* button that exports BibTeX/APA):
 
 ```bibtex
 @software{seedling,
-  author  = {Molina Abril, Gines},
-  title   = {{Seedling: a fine-tunable, multi-stage literature-review pipeline}},
+  author  = {Molina-Abril, Gin\'es},
+  title   = {{Seedling: a seed-grown, reproducible literature-review pipeline}},
   year    = {2026},
+  version = {1.0.1},
+  doi     = {10.5281/zenodo.23065919},
   url     = {https://github.com/molina-abril/seedling},
   license = {AGPL-3.0-or-later}
 }

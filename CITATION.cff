@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "Seedling"
+title: "Seedling: a seed-grown, reproducible literature-review pipeline"
 abstract: >-
   Modular, multi-stage literature-review pipeline that grows a reviewed corpus
   from a handful of seed papers: BERTopic clustering, deterministic Scopus/arXiv
@@ -14,7 +14,7 @@ authors:
     orcid: "https://orcid.org/0000-0001-7877-0812"
     affiliation: "Universitat Oberta de Catalunya"
 license: AGPL-3.0-or-later
-version: "1.0.0"
+version: "1.0.1"
 doi: "10.5281/zenodo.23065919"
 date-released: "2026-09-30"
 url: "https://github.com/molina-abril/seedling"
