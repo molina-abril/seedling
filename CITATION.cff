@@ -15,6 +15,7 @@ authors:
     affiliation: "Universitat Oberta de Catalunya"
 license: AGPL-3.0-or-later
 version: "1.0.0"
+doi: "10.5281/zenodo.23065919"
 date-released: "2026-09-30"
 url: "https://github.com/molina-abril/seedling"
 repository-code: "https://github.com/molina-abril/seedling"
