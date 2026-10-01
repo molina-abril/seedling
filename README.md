@@ -1,7 +1,8 @@
 # Seedling — Literature Review Pipeline
 
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3%2B-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![tests](https://github.com/molina-abril/seedling/actions/workflows/tests.yml/badge.svg)](https://github.com/molina-abril/seedling/actions/workflows/tests.yml)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Status](https://img.shields.io/badge/status-research%20software-orange.svg)](#)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23065919.svg)](https://doi.org/10.5281/zenodo.23065919)
 
