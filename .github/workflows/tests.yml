@@ -28,6 +28,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[test]"
 
+      - name: Provide a placeholder Scopus configuration
+        # pybliometrics prompts for an API key on stdin at import time, which
+        # breaks collection in any non-interactive environment. The
+        # non-integration suite never calls Scopus; this only stops the prompt.
+        run: |
+          mkdir -p ~/.config
+          cat > ~/.config/pybliometrics.cfg <<'CFG'
+          [Directories]
+          AbstractRetrieval = ~/.cache/pybliometrics/Scopus/abstract_retrieval
+          ScopusSearch = ~/.cache/pybliometrics/Scopus/scopus_search
+          [Authentication]
+          APIKey = 0000000000000000000000000000000f
+          CFG
+
       - name: Run the test suite
         # Integration tests need real network access and API keys
         # (Scopus, arXiv, OpenAI) and are excluded by default in pyproject.toml.
